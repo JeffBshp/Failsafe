@@ -1,2 +1,5 @@
 .vs/*
 *.vcxproj.*
+build/*
+obj/*
+packages/*

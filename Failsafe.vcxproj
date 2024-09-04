@@ -156,10 +156,34 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\engine\camera.c" />
+    <ClCompile Include="src\engine\editor.c" />
+    <ClCompile Include="src\engine\input.c" />
+    <ClCompile Include="src\engine\mesher.c" />
+    <ClCompile Include="src\engine\noise.c" />
+    <ClCompile Include="src\engine\physics.c" />
+    <ClCompile Include="src\engine\render.c" />
+    <ClCompile Include="src\engine\shader.c" />
+    <ClCompile Include="src\engine\shape.c" />
+    <ClCompile Include="src\engine\utility.c" />
+    <ClCompile Include="src\engine\world.c" />
     <ClCompile Include="src\main.c" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\engine\camera.h" />
+    <ClInclude Include="src\engine\editor.h" />
+    <ClInclude Include="src\engine\input.h" />
+    <ClInclude Include="src\engine\mesher.h" />
+    <ClInclude Include="src\engine\noise.h" />
+    <ClInclude Include="src\engine\physics.h" />
+    <ClInclude Include="src\engine\render.h" />
+    <ClInclude Include="src\engine\shader.h" />
+    <ClInclude Include="src\engine\shape.h" />
+    <ClInclude Include="src\engine\utility.h" />
+    <ClInclude Include="src\engine\world.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

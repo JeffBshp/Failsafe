@@ -23,66 +23,69 @@ static inline void SetBlock(Chunk* chunk, int x, int y, int z, unsigned char typ
 // Sets the CHUNK_LOADED flag when finished to indicate that the chunk is ready to be meshed.
 static void GenerateChunk(Chunk* chunk)
 {
-	// TODO: no vertically stacked chunks for now
-	if (chunk->coords[1] == 0)
+	Uint32 ticks = SDL_GetTicks();
+	int cx = chunk->coords[0];
+	int cy = chunk->coords[1];
+	int cz = chunk->coords[2];
+	int minY = cy * 64;
+	float p = 0.0f;
+	NoiseMaker* nm = chunk->world->noiseMaker;
+
+	unsigned char* noise2D = Noise_Generate2D(nm, cx, cz, &p);
+	unsigned char* noise3D = Noise_Generate3D(nm, cx, cz, &p);
+
+	for (int z = 0; z < 64; z++)
 	{
-		Uint32 ticks = SDL_GetTicks();
-		int x = chunk->coords[0];
-		int z = chunk->coords[2];
-		float p = 0.0f;
-		NoiseMaker* nm = chunk->world->noiseMaker;
-
-		unsigned char* noise2D = Noise_Generate2D(nm, x, z, &p);
-		unsigned char* noise3D = Noise_Generate3D(nm, x, z, &p);
-
-		for (int v = 0; v < 64; v++)
+		for (int x = 0; x < 64; x++)
 		{
-			for (int u = 0; u < 64; u++)
+			int height = noise2D[(z * 64) + x] - 128;
+
+			for (int y = 0; y < 64; y++)
 			{
-				int height = noise2D[(v * 64) + u] / 4;
+				int wy = minY + y;
+				unsigned char type = BLOCK_AIR;
 
-				for (int y = 0; y < 64; y++)
+				if (wy < height - 10)
 				{
-					unsigned char type = BLOCK_AIR;
-
-					if (y < 0.7 * height)
-					{
-						int i = (y * 4096) + (v * 64) + u;
-						if (noise3D[i] < 192) type = BLOCK_STONE;
-					}
-					else if (y < 0.9 * height) type = BLOCK_DIRT;
-					else if (y < height) type = BLOCK_GRASS;
-
-					SetBlock(chunk, u, y, v, type);
+					int i = (y * 4096) + (z * 64) + x;
+					if (noise3D[i] < 192) type = BLOCK_STONE;
 				}
+				else if (wy < height - 2) type = BLOCK_DIRT;
+				else if (wy < height) type = BLOCK_GRASS;
+
+				SetBlock(chunk, x, y, z, type);
 			}
 		}
-
-		for (int v = 0; v < 64; v++)
-		{
-			for (int u = 0; u < 64; u++)
-			{
-				int height = noise2D[(v * 64) + u] / 4;
-
-				if (height < 56 && u > 1 && u < 62 && v > 1 && v < 62 && (rand() % 360) == 0)
-				{
-					for (int h = height; h < height + 6; h++)
-						SetBlock(chunk, u, h, v, BLOCK_LOG);
-
-					for (int y = 0; y < 3; y++)
-						for (int x = u - 2 + y; x <= u + 2 - y; x++)
-							for (int z = v - 2 + y; z <= v + 2 - y; z++)
-								SetBlock(chunk, x, height + 6 + y, z, BLOCK_LEAVES);
-				}
-			}
-		}
-
-		free(noise2D);
-		free(noise3D);
-
-		ticks = SDL_GetTicks() - ticks;
-		printf("Chunk gen took %d ms.\n", ticks);
 	}
+
+	for (int z = 0; z < 64; z++)
+	{
+		for (int x = 0; x < 64; x++)
+		{
+			int height = noise2D[(z * 64) + x] - 128;
+
+			if (height >= minY && height < minY + 56 &&
+				x > 1 && x < 62 && z > 1 && z < 62 &&
+				(rand() % 360) == 0)
+			{
+				height -= minY;
+
+				for (int h = height; h < height + 6; h++)
+					SetBlock(chunk, x, h, z, BLOCK_LOG);
+
+				for (int w = 0; w < 3; w++)
+					for (int u = x - 2 + w; u <= x + 2 - w; u++)
+						for (int v = z - 2 + w; v <= z + 2 - w; v++)
+							SetBlock(chunk, u, height + 6 + w, v, BLOCK_LEAVES);
+			}
+		}
+	}
+
+	free(noise2D);
+	free(noise3D);
+
+	ticks = SDL_GetTicks() - ticks;
+	printf("Chunk gen took %d ms.\n", ticks);
 
 	// chunk is loaded and ready to mesh
 	chunk->flags |= CHUNK_LOADED;

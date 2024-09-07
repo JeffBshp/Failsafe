@@ -15,7 +15,9 @@ static void Init(NoiseMaker* nm)
 	if (nm->initialized) return;
 
 	nm->initialized = true;
-	nm->seed = time(NULL);
+	// TODO: random seed
+	//nm->seed = time(NULL);
+	nm->seed = 10180386957696756865;
 	srand(nm->seed);
 
 	// fill array

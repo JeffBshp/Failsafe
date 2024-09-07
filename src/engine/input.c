@@ -10,6 +10,23 @@
 #include "editor.h"
 #include "mesher.h"
 
+static Chunk* WorldToChunkCoords(World* world, vec3 wPos, vec3 cPos)
+{
+	int x = (int)floorf(wPos[0]);
+	int y = (int)floorf(wPos[1]);
+	int z = (int)floorf(wPos[2]);
+
+	int cx = (x - (x < 0 ? 63 : 0)) / 64;
+	int cy = (y - (y < 0 ? 63 : 0)) / 64;
+	int cz = (z - (z < 0 ? 63 : 0)) / 64;
+
+	cPos[0] = x - (cx * 64);
+	cPos[1] = y - (cy * 64);
+	cPos[2] = z - (cz * 64);
+
+	return Treadmill3DGet(world->chunks, cx, cy, cz);
+}
+
 static unsigned char GetBlock(Chunk* chunk, vec3 pos)
 {
 	int x = floorf(pos[0]);
@@ -23,13 +40,11 @@ static unsigned char GetBlock(Chunk* chunk, vec3 pos)
 	return chunk->blocks[i];
 }
 
-static bool IsSolidBlock(Chunk* chunk, float x, float y, float z)
+static bool IsSolidBlock(World* world, vec3 pos)
 {
-	vec3 v;
-	v[0] = x;
-	v[1] = y;
-	v[2] = z;
-	return GetBlock(chunk, v) != 0;
+	vec3 cPos;
+	Chunk* chunk = WorldToChunkCoords(world, pos, cPos);
+	return GetBlock(chunk, cPos) != 0;
 }
 
 static bool DDA(Chunk* chunk, vec3 a, vec3 move, vec3 block, int maxSteps)
@@ -120,40 +135,6 @@ static void GetMoveVector(Camera* cam, vec3 dest, bool up, bool down, bool left,
 	glm_vec3_normalize(dest);
 }
 
-// TODO: misses collisions when crossing chunk boundaries
-static void CameraCollideVoxels(Camera* cam, Chunk* chunk)
-{
-	float cx = cam->pos[0] - (chunk->coords[0] * 64);
-	float cy = cam->pos[1] - (chunk->coords[1] * 64);
-	float cz = cam->pos[2] - (chunk->coords[2] * 64);
-	float vx = cam->vel[0];
-	float vy = cam->vel[1];
-	float vz = cam->vel[2];
-	float ox = vx > 0 ? 0.3 : -0.3;
-	float oz = vz > 0 ? 0.3 : -0.3;
-
-	if (IsSolidBlock(chunk, cx, cy - 1.4f, cz))
-	{
-		cy = floorf(cy - 1.4f) + 2.3f;
-		cam->pos[1] = cy + (chunk->coords[1] * 64);
-		cam->vel[1] = 0;
-	}
-
-	if (IsSolidBlock(chunk, cx + ox + ox, cy - 1.1f, cz))
-	{
-		cx = floorf(cx + ox + ox) - ox + (vx > 0 ? 0 : 1.0f);
-		cam->pos[0] = cx + (chunk->coords[0] * 64);
-		cam->vel[0] = 0;
-	}
-
-	if (IsSolidBlock(chunk, cx, cy - 1.1f, cz + oz + oz))
-	{
-		cz = floorf(cz + oz + oz) - oz + (vz > 0 ? 0 : 1.0f);
-		cam->pos[2] = cz + (chunk->coords[2] * 64);
-		cam->vel[2] = 0;
-	}
-}
-
 static void CheckChunks(GameState* gs)
 {
 	Camera* cam = gs->cam;
@@ -185,20 +166,41 @@ static void CheckChunks(GameState* gs)
 	}
 }
 
-static Chunk* GetActiveChunk(World* world, Camera* cam)
+// TODO: misses collisions when crossing chunk boundaries
+static void CameraCollideVoxels(World* world, Camera* cam)
 {
-	int x = (int)floorf(cam->pos[0]);
-	int y = (int)floorf(cam->pos[1]);
-	int z = (int)floorf(cam->pos[2]);
+	float cx = cam->pos[0];
+	float cy = cam->pos[1];
+	float cz = cam->pos[2];
+	float vx = cam->vel[0];
+	float vy = cam->vel[1];
+	float vz = cam->vel[2];
+	float ox = vx > 0 ? 0.3 : -0.3;
+	float oz = vz > 0 ? 0.3 : -0.3;
 
-	x = (x - (x < 0 ? 64 : 0)) / 64;
-	y = (y - (y < 0 ? 64 : 0)) / 64;
-	z = (z - (z < 0 ? 64 : 0)) / 64;
+	vec3* posToTest = (vec3){ cx, cy - 1.4f, cz };
+	if (IsSolidBlock(world, *posToTest))
+	{
+		cy = floorf(cy - 1.4f) + 2.3f;
+		cam->pos[1] = cy;
+		cam->vel[1] = 0;
+	}
 
-	// TODO: no vertically stacked chunks for now
-	y = 0;
+	posToTest = (vec3){ cx + ox + ox, cy - 1.1f, cz };
+	if (IsSolidBlock(world, *posToTest))
+	{
+		cx = floorf(cx + ox + ox) - ox + (vx > 0 ? 0 : 1.0f);
+		cam->pos[0] = cx;
+		cam->vel[0] = 0;
+	}
 
-	return Treadmill3DGet(world->chunks, x, y, z);
+	posToTest = (vec3){ cx, cy - 1.1f, cz + oz + oz };
+	if (IsSolidBlock(world, *posToTest))
+	{
+		cz = floorf(cz + oz + oz) - oz + (vz > 0 ? 0 : 1.0f);
+		cam->pos[2] = cz;
+		cam->vel[2] = 0;
+	}
 }
 
 void Input_Update(InputState* key, GameState* gs)
@@ -237,8 +239,7 @@ void Input_Update(InputState* key, GameState* gs)
 		glm_vec3_scale(move, accel * deltaTime, move); // scale acceleration by dt
 		glm_vec3_add(gs->cam->vel, move, gs->cam->vel); // apply acceleration to velocity
 		glm_vec3_scale(gs->cam->vel, 0.9f, gs->cam->vel); // scale down for pseudo-drag
-		Chunk* chunk = GetActiveChunk(gs->world, gs->cam);
-		if (key->gravity) CameraCollideVoxels(gs->cam, chunk); // avoid flying through blocks
+		if (key->gravity) CameraCollideVoxels(gs->world, gs->cam); // avoid flying through blocks
 		glm_vec3_add(gs->cam->pos, gs->cam->vel, gs->cam->pos); // apply velocity to position
 		
 		// prevent falling into the abyss

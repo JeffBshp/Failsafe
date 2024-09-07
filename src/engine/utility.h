@@ -12,7 +12,6 @@ typedef struct
 	size_t size;
 } ListUInt64;
 
-
 typedef struct
 {
 	char message1[PROGRESS_MSG_LEN];

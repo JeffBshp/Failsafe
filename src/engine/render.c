@@ -513,49 +513,51 @@ void Render_Draw(GameState* gs)
 	const size_t numBlocks = 64 * 64 * 64;
 	Treadmill3D* chunks = gs->world->chunks;
 	int wX = chunks->x;
-	//int wY = chunks->y;
+	int wY = chunks->y;
 	int wZ = chunks->z;
 	int r = chunks->radius;
-	int y = 0; // TODO: ignoring world height for now
 
 	SDL_LockMutex(gs->world->mutex);
 
 	for (int z = wZ - r; z <= wZ + r; z++)
 	{
-		for (int x = wX - r; x <= wX + r; x++)
+		for (int y = wY - r; y <= wY + r; y++)
 		{
-			Chunk* chunk = Treadmill3DGet(chunks, x, y, z);
-			if (chunk == NULL) continue;
-			if (!EnumHasFlag(chunk->flags, CHUNK_LOADED)) continue;
-			if (EnumHasFlag(chunk->flags, CHUNK_DIRTY)) continue;
-
-			SDL_LockMutex(chunk->mutex);
-
-			ListUInt64 quads = chunk->quads;
-			vec3 chunkPos;
-			mat4 chunkModel;
-			chunkPos[0] = chunk->coords[0] * 64;
-			chunkPos[1] = chunk->coords[1] * 64;
-			chunkPos[2] = chunk->coords[2] * 64;
-
-			glm_mat4_identity(chunkModel);
-			glm_translate(chunkModel, chunkPos);
-			glUniformMatrix4fv(glGetUniformLocation(gs->chunkShader, "ourModel"), 1, GL_FALSE, chunkModel);
-
-			// TODO: Keep all chunks in one buffer and call glBufferSubData.
-			// TODO: Only buffer if chunk has changed.
-			gs->buffer = true;
-			if (gs->buffer)
+			for (int x = wX - r; x <= wX + r; x++)
 			{
-				glBindBuffer(GL_SHADER_STORAGE_BUFFER, gs->chunkBBO);
-				glBufferData(GL_SHADER_STORAGE_BUFFER, numBlocks * sizeof(GLubyte), chunk->blocks, GL_DYNAMIC_DRAW);
-				glBindBuffer(GL_ARRAY_BUFFER, gs->chunkQBO);
-				glBufferData(GL_ARRAY_BUFFER, quads.size * sizeof(GLuint64), quads.values, GL_DYNAMIC_DRAW);
-				gs->buffer = false;
-			}
-			SDL_UnlockMutex(chunk->mutex);
+				Chunk* chunk = Treadmill3DGet(chunks, x, y, z);
+				if (chunk == NULL) continue;
+				if (!EnumHasFlag(chunk->flags, CHUNK_LOADED)) continue;
+				if (EnumHasFlag(chunk->flags, CHUNK_DIRTY)) continue;
 
-			glDrawArrays(GL_POINTS, 0, quads.size);
+				SDL_LockMutex(chunk->mutex);
+
+				ListUInt64 quads = chunk->quads;
+				vec3 chunkPos;
+				mat4 chunkModel;
+				chunkPos[0] = chunk->coords[0] * 64;
+				chunkPos[1] = chunk->coords[1] * 64;
+				chunkPos[2] = chunk->coords[2] * 64;
+
+				glm_mat4_identity(chunkModel);
+				glm_translate(chunkModel, chunkPos);
+				glUniformMatrix4fv(glGetUniformLocation(gs->chunkShader, "ourModel"), 1, GL_FALSE, chunkModel);
+
+				// TODO: Keep all chunks in one buffer and call glBufferSubData.
+				// TODO: Only buffer if chunk has changed.
+				gs->buffer = true;
+				if (gs->buffer)
+				{
+					glBindBuffer(GL_SHADER_STORAGE_BUFFER, gs->chunkBBO);
+					glBufferData(GL_SHADER_STORAGE_BUFFER, numBlocks * sizeof(GLubyte), chunk->blocks, GL_DYNAMIC_DRAW);
+					glBindBuffer(GL_ARRAY_BUFFER, gs->chunkQBO);
+					glBufferData(GL_ARRAY_BUFFER, quads.size * sizeof(GLuint64), quads.values, GL_DYNAMIC_DRAW);
+					gs->buffer = false;
+				}
+				SDL_UnlockMutex(chunk->mutex);
+
+				glDrawArrays(GL_POINTS, 0, quads.size);
+			}
 		}
 	}
 

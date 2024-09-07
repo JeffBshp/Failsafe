@@ -300,54 +300,56 @@ void Mesher_MeshWorld(World* world)
 	const size_t sizeOfMaskArrays = 64 * 64 * sizeof(uint64_t);
 	Uint32 ticks = SDL_GetTicks();
 	int wX = world->chunks->x;
-	//int wY = world->chunks->y;
+	int wY = world->chunks->y;
 	int wZ = world->chunks->z;
 	int r = world->chunks->radius;
-	int y = 0; // TODO: ignoring world height for now
 	bool dirty = false;
 
 	for (int z = wZ - r; z <= wZ + r; z++)
 	{
-		for (int x = wX - r; x <= wX + r; x++)
+		for (int y = wY - r; y <= wY + r; y++)
 		{
-			Chunk* chunk = Treadmill3DGet(world->chunks, x, y, z);
-			if (chunk == NULL) continue;
-
-			SDL_LockMutex(chunk->mutex);
-
-			if (!EnumHasFlag(chunk->flags, CHUNK_LOADED))
+			for (int x = wX - r; x <= wX + r; x++)
 			{
+				Chunk* chunk = Treadmill3DGet(world->chunks, x, y, z);
+				if (chunk == NULL) continue;
+
+				SDL_LockMutex(chunk->mutex);
+
+				if (!EnumHasFlag(chunk->flags, CHUNK_LOADED))
+				{
+					SDL_UnlockMutex(chunk->mutex);
+					dirty = true; // skip meshing this chunk and let the world remain dirty
+					continue;
+				}
+
+				if (!EnumHasFlag(chunk->flags, CHUNK_DIRTY))
+				{
+					SDL_UnlockMutex(chunk->mutex);
+					continue;
+				}
+
+
+				ticks = SDL_GetTicks();
+				chunk->occupancy = malloc(3 * sizeOfMaskArrays); // 96 kB
+				memset(chunk->occupancy, 0, 3 * sizeOfMaskArrays);
+				chunk->faceMasks = malloc(6 * sizeOfMaskArrays); // 192 kB
+				memset(chunk->faceMasks, 0, 6 * sizeOfMaskArrays);
+
+				if (GenerateOccupancyMasks(chunk))
+				{
+					GenerateFaceMasks(chunk, world);
+					GreedyMesh(chunk);
+				}
+
+				free(chunk->occupancy);
+				free(chunk->faceMasks);
+				EnumSetFlag(&chunk->flags, CHUNK_DIRTY, false);
 				SDL_UnlockMutex(chunk->mutex);
-				dirty = true; // skip meshing this chunk and let the world remain dirty
-				continue;
+
+				ticks = SDL_GetTicks() - ticks;
+				printf("Chunk mesh took %d ms.\n", ticks);
 			}
-
-			if (!EnumHasFlag(chunk->flags, CHUNK_DIRTY))
-			{
-				SDL_UnlockMutex(chunk->mutex);
-				continue;
-			}
-
-
-			ticks = SDL_GetTicks();
-			chunk->occupancy = malloc(3 * sizeOfMaskArrays); // 96 kB
-			memset(chunk->occupancy, 0, 3 * sizeOfMaskArrays);
-			chunk->faceMasks = malloc(6 * sizeOfMaskArrays); // 192 kB
-			memset(chunk->faceMasks, 0, 6 * sizeOfMaskArrays);
-
-			if (GenerateOccupancyMasks(chunk))
-			{
-				GenerateFaceMasks(chunk, world);
-				GreedyMesh(chunk);
-			}
-
-			free(chunk->occupancy);
-			free(chunk->faceMasks);
-			EnumSetFlag(&chunk->flags, CHUNK_DIRTY, false);
-			SDL_UnlockMutex(chunk->mutex);
-
-			ticks = SDL_GetTicks() - ticks;
-			printf("Chunk mesh took %d ms.\n", ticks);
 		}
 	}
 

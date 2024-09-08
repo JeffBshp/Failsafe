@@ -5,11 +5,13 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <math.h>
+
 #include "SDL.h"
 #include "gl/glew.h"
 #include "SDL_opengl.h"
 #include "SOIL2/SOIL2.h"
 #include "cglm/cglm.h"
+
 #include "engine/camera.h"
 #include "engine/shader.h"
 #include "engine/render.h"
@@ -19,8 +21,16 @@
 #include "engine/noise.h"
 #include "engine/utility.h"
 
+#include "language/tokens.h"
+#include "language/parser.h"
+#include "language/runner.h"
+
 int main(int argc, char* argv[])
 {
+	Function* f = Parser_ParseFile("./code/example.txt");
+	Runner_Execute(f);
+	printf("\n\n\n");
+
 	Camera cam;
 	NoiseMaker nm = { .initialized = false };
 	Progress prog = { .percent1 = 0, .percent2 = 0, .done = false };

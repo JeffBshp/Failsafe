@@ -1,0 +1,29 @@
+# This is an example program that can run inside the game.
+# Its syntax is similar to C, but it is interpreted, not compiled (for now anyway).
+# The idea is that the player can write programs that interact with the game world.
+# For example, creating scripts for robots that move around, harvest materials, manufacture objects, and build structures.
+# For now, the only thing this virtual program can do is call a function that prints to the console.
+
+
+
+# File should contain a single root function with any name (may change how this works later)
+int main
+	()				# Function parameter list (no params in this example)
+	(int localInt)	# Local variables (must be declared here, in the function signature; may change later)
+{
+	localInt = 0;			# Assign a value to a local variable
+
+	while (localInt < 10)	# There are "while" loops, but not "for" loops
+	{
+		localInt = localInt + 1;	# Arithmetic operation
+		
+		print("Hello", localInt);	# Call an external function
+		
+		if (localInt == 5)			# Conditional execution with "if" (no "else" yet)
+		{
+			print("Halfway Point", localInt);
+		}
+	}
+	
+	return localInt;		# Return a value
+}

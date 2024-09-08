@@ -167,6 +167,9 @@
     <ClCompile Include="src\engine\shape.c" />
     <ClCompile Include="src\engine\utility.c" />
     <ClCompile Include="src\engine\world.c" />
+    <ClCompile Include="src\language\parser.c" />
+    <ClCompile Include="src\language\runner.c" />
+    <ClCompile Include="src\language\tokens.c" />
     <ClCompile Include="src\main.c" />
   </ItemGroup>
   <ItemGroup>
@@ -184,6 +187,9 @@
     <ClInclude Include="src\engine\shape.h" />
     <ClInclude Include="src\engine\utility.h" />
     <ClInclude Include="src\engine\world.h" />
+    <ClInclude Include="src\language\parser.h" />
+    <ClInclude Include="src\language\runner.h" />
+    <ClInclude Include="src\language\tokens.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

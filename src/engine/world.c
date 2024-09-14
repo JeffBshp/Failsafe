@@ -85,7 +85,7 @@ static void GenerateChunk(Chunk* chunk)
 	free(noise3D);
 
 	ticks = SDL_GetTicks() - ticks;
-	printf("Chunk gen took %d ms.\n", ticks);
+	//printf("Chunk gen took %d ms.\n", ticks);
 
 	// chunk is loaded and ready to mesh
 	chunk->flags |= CHUNK_LOADED;

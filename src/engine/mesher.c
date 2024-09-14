@@ -348,7 +348,7 @@ void Mesher_MeshWorld(World* world)
 				SDL_UnlockMutex(chunk->mutex);
 
 				ticks = SDL_GetTicks() - ticks;
-				printf("Chunk mesh took %d ms.\n", ticks);
+				//printf("Chunk mesh took %d ms.\n", ticks);
 			}
 		}
 	}

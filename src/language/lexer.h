@@ -70,19 +70,18 @@ typedef enum
 
 typedef enum
 {
-	TSS_ACTIVE,
-	TSS_ENDOFFILE,
-	TSS_ENDOFBUFFER,
-	TSS_STRINGTOOLONG,
-	TSS_NUMTOOLONG,
-	TSS_FILEERROR,
-	TSS_INDEXERROR,
-
-	TSS_INVALIDTOKEN,
-	TSS_INVALIDDATATYPE,
-	TSS_TOOMANYPARAMS,
-	TSS_TOOMANYSTATEMENTS,
-} TokenStreamStatus;
+	LEX_ACTIVE,
+	LEX_ENDOFFILE,
+	LEX_ENDOFBUFFER,
+	LEX_STRINGTOOLONG,
+	LEX_NUMTOOLONG,
+	LEX_FILEERROR,
+	LEX_INDEXERROR,
+	LEX_INVALIDTOKEN,
+	LEX_INVALIDDATATYPE,
+	LEX_TOOMANYPARAMS,
+	LEX_TOOMANYSTATEMENTS,
+} LexStatus;
 
 enum
 {
@@ -117,12 +116,12 @@ typedef struct
 	int n;				// number of chars in the buffer
 	int c;				// character at buffer[i]
 	Token token;		// most recent token
-	TokenStreamStatus status;
+	LexStatus status;
 	// Keep the current token instead of reading the next one.
 	// Resets after each use.
 	bool keepToken;
-} TokenStream;
+} Lexer;
 
-void TokenStream_Open(TokenStream* ts, char* filePath);
-void TokenStream_Next(TokenStream* ts);
-void TokenStream_Close(TokenStream* ts);
+Lexer* Lexer_OpenFile(char* filePath);
+void Lexer_NextToken(Lexer* lex);
+void Lexer_Destroy(Lexer* lex);

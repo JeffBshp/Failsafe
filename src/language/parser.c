@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "tokens.h"
+#include "lexer.h"
 #include "parser.h"
 
 #pragma region Helpers
@@ -56,95 +56,95 @@ static inline bool SameTokenType(Token a, Token b)
 	return false;
 }
 
-static void SkipToken(TokenStream* ts, Token tok)
+static void SkipToken(Lexer* lex, Token tok)
 {
-	TokenStream_Next(ts);
+	Lexer_NextToken(lex);
 
-	if (ts->status == TSS_ACTIVE && !SameTokenType(ts->token, tok))
-		ts->status = TSS_INVALIDTOKEN;
+	if (lex->status == LEX_ACTIVE && !SameTokenType(lex->token, tok))
+		lex->status = LEX_INVALIDTOKEN;
 }
 
-static bool TrySkipToken(TokenStream* ts, Token tok)
+static bool TrySkipToken(Lexer* lex, Token tok)
 {
-	TokenStream_Next(ts);
+	Lexer_NextToken(lex);
 
-	if (SameTokenType(ts->token, tok))
+	if (SameTokenType(lex->token, tok))
 		return true;
 
-	ts->keepToken = true;
+	lex->keepToken = true;
 	return false;
 }
 
-static inline void SkipSymbol(TokenStream* ts, TokenSymbol sym)
+static inline void SkipSymbol(Lexer* lex, TokenSymbol sym)
 {
-	SkipToken(ts, (Token) { .type = TOK_SYMBOL, .value = { .asSymbol = sym } });
+	SkipToken(lex, (Token) { .type = TOK_SYMBOL, .value = { .asSymbol = sym } });
 }
 
-static inline bool TrySkipSymbol(TokenStream* ts, TokenSymbol sym)
+static inline bool TrySkipSymbol(Lexer* lex, TokenSymbol sym)
 {
-	return TrySkipToken(ts, (Token) { .type = TOK_SYMBOL, .value = { .asSymbol = sym } });
+	return TrySkipToken(lex, (Token) { .type = TOK_SYMBOL, .value = { .asSymbol = sym } });
 }
 
-static Token PeekToken(TokenStream* ts)
+static Token PeekToken(Lexer* lex)
 {
-	TokenStream_Next(ts);
-	ts->keepToken = true;
-	return ts->token;
+	Lexer_NextToken(lex);
+	lex->keepToken = true;
+	return lex->token;
 }
 
-static bool HasToken(TokenStream* ts)
+static bool HasToken(Lexer* lex)
 {
-	PeekToken(ts);
-	return ts->status == TSS_ACTIVE;
+	PeekToken(lex);
+	return lex->status == LEX_ACTIVE;
 }
 
 #pragma endregion
 
 #pragma region BasicParsing
 
-static DataType ReadType(TokenStream* ts)
+static DataType ReadType(Lexer* lex)
 {
-	TokenStream_Next(ts);
+	Lexer_NextToken(lex);
 
-	DataType dt = TokenToDataType(ts->token);
+	DataType dt = TokenToDataType(lex->token);
 
-	if (ts->status == TSS_ACTIVE)
+	if (lex->status == LEX_ACTIVE)
 	{
-		if (ts->token.type != TOK_KEYWORD)
-			ts->status = TSS_INVALIDTOKEN;
+		if (lex->token.type != TOK_KEYWORD)
+			lex->status = LEX_INVALIDTOKEN;
 		else if (dt == DAT_INVALID)
-			ts->status = TSS_INVALIDDATATYPE;
+			lex->status = LEX_INVALIDDATATYPE;
 	}
 
 	return dt;
 }
 
-static char* ReadIdentifier(TokenStream* ts)
+static char* ReadIdentifier(Lexer* lex)
 {
 	char* identifier = NULL;
 
-	TokenStream_Next(ts);
+	Lexer_NextToken(lex);
 
-	if (ts->status == TSS_ACTIVE)
+	if (lex->status == LEX_ACTIVE)
 	{
-		if (ts->token.type == TOK_IDENTIFIER)
-			identifier = DeepCopyStr(ts->token.value.asString);
+		if (lex->token.type == TOK_IDENTIFIER)
+			identifier = DeepCopyStr(lex->token.value.asString);
 		else
-			ts->status = TSS_INVALIDTOKEN;
+			lex->status = LEX_INVALIDTOKEN;
 	}
 	
 	return identifier;
 }
 
-static bool TryReadParameter(TokenStream* ts, Parameter* p)
+static bool TryReadParameter(Lexer* lex, Parameter* p)
 {
-	Token next = PeekToken(ts);
+	Token next = PeekToken(lex);
 	DataType dt = TokenToDataType(next);
 
 	if (dt != DAT_INVALID)
 	{
-		TokenStream_Next(ts);
-		p->name = ReadIdentifier(ts);
+		Lexer_NextToken(lex);
+		p->name = ReadIdentifier(lex);
 		p->type = dt;
 		return true;
 	}
@@ -152,34 +152,34 @@ static bool TryReadParameter(TokenStream* ts, Parameter* p)
 	return false;
 }
 
-static Parameter* ReadParameterList(TokenStream* ts, int* n)
+static Parameter* ReadParameterList(Lexer* lex, int* n)
 {
 	Parameter buffer[CONST_MAXPARAMS];
 	*n = 0;
 
-	SkipSymbol(ts, SYM_LPAREN);
+	SkipSymbol(lex, SYM_LPAREN);
 
-	if (TryReadParameter(ts, buffer + *n))
+	if (TryReadParameter(lex, buffer + *n))
 	{
 		(*n)++;
 
-		while (ts->status == TSS_ACTIVE
+		while (lex->status == LEX_ACTIVE
 			&& *n < CONST_MAXPARAMS
-			&& TrySkipSymbol(ts, SYM_COMMA))
+			&& TrySkipSymbol(lex, SYM_COMMA))
 		{
-			if (TryReadParameter(ts, buffer + *n))
+			if (TryReadParameter(lex, buffer + *n))
 			{
 				(*n)++;
 			}
 			else
 			{
-				ts->status = TSS_INVALIDTOKEN;
+				lex->status = LEX_INVALIDTOKEN;
 				break;
 			}
 		}
 	}
 
-	SkipSymbol(ts, SYM_RPAREN);
+	SkipSymbol(lex, SYM_RPAREN);
 
 	Parameter* list = calloc(*n, sizeof(Parameter));
 
@@ -202,31 +202,31 @@ static Expression* MakeExpression(ExpressionType type)
 	return e;
 }
 
-static Expression* TryReadBinaryExpression(TokenStream* ts, Expression* left);
-static Expression* ReadExpressionAtom(TokenStream* ts);
+static Expression* TryReadBinaryExpression(Lexer* lex, Expression* left);
+static Expression* ReadExpressionAtom(Lexer* lex);
 
-static Expression* ReadExpression(TokenStream* ts)
+static Expression* ReadExpression(Lexer* lex)
 {
-	return TryReadBinaryExpression(ts, ReadExpressionAtom(ts));
+	return TryReadBinaryExpression(lex, ReadExpressionAtom(lex));
 }
 
-static Expression* ReadArgumentList(TokenStream* ts, int* n)
+static Expression* ReadArgumentList(Lexer* lex, int* n)
 {
 	Expression* buffer[CONST_MAXPARAMS];
 	*n = 0;
 
-	if (!TrySkipSymbol(ts, SYM_RPAREN))
+	if (!TrySkipSymbol(lex, SYM_RPAREN))
 	{
-		buffer[(*n)++] = ReadExpression(ts);
+		buffer[(*n)++] = ReadExpression(lex);
 
-		while (ts->status == TSS_ACTIVE
+		while (lex->status == LEX_ACTIVE
 			&& *n < CONST_MAXPARAMS
-			&& TrySkipSymbol(ts, SYM_COMMA))
+			&& TrySkipSymbol(lex, SYM_COMMA))
 		{
-			buffer[(*n)++] = ReadExpression(ts);
+			buffer[(*n)++] = ReadExpression(lex);
 		}
 
-		SkipSymbol(ts, SYM_RPAREN);
+		SkipSymbol(lex, SYM_RPAREN);
 	}
 
 	Expression* list = malloc((*n) * sizeof(Expression));
@@ -240,16 +240,16 @@ static Expression* ReadArgumentList(TokenStream* ts, int* n)
 	return list;
 }
 
-static Expression* ReadIdentifierExpression(TokenStream* ts)
+static Expression* ReadIdentifierExpression(Lexer* lex)
 {
 	Expression* e;
-	char* identifier = DeepCopyStr(ts->token.value.asString);
+	char* identifier = DeepCopyStr(lex->token.value.asString);
 
-	if (TrySkipSymbol(ts, SYM_LPAREN))
+	if (TrySkipSymbol(lex, SYM_LPAREN))
 	{
 		e = MakeExpression(EX_CALL);
 		e->content.asCall.name = identifier;
-		e->content.asCall.arguments = ReadArgumentList(ts, &(e->content.asCall.numArguments));
+		e->content.asCall.arguments = ReadArgumentList(lex, &(e->content.asCall.numArguments));
 	}
 	else
 	{
@@ -260,74 +260,74 @@ static Expression* ReadIdentifierExpression(TokenStream* ts)
 	return e;
 }
 
-static Expression* ReadExpressionAtom(TokenStream* ts)
+static Expression* ReadExpressionAtom(Lexer* lex)
 {
 	Expression* e = NULL;
-	TokenStream_Next(ts);
+	Lexer_NextToken(lex);
 
-	switch (ts->token.type)
+	switch (lex->token.type)
 	{
 	case TOK_LIT_INT:
 		e = MakeExpression(EX_VALUE);
 		e->content.asValue.type = DAT_INT;
-		e->content.asValue.value.asInt = ts->token.value.asInt;
+		e->content.asValue.value.asInt = lex->token.value.asInt;
 		break;
 	case TOK_LIT_FLOAT:
 		e = MakeExpression(EX_VALUE);
 		e->content.asValue.type = DAT_FLOAT;
-		e->content.asValue.value.asFloat = ts->token.value.asFloat;
+		e->content.asValue.value.asFloat = lex->token.value.asFloat;
 		break;
 	case TOK_LIT_BOOL:
 		e = MakeExpression(EX_VALUE);
 		e->content.asValue.type = DAT_BOOL;
-		e->content.asValue.value.asBool = ts->token.value.asBool;
+		e->content.asValue.value.asBool = lex->token.value.asBool;
 		break;
 	case TOK_LIT_STRING:
 		e = MakeExpression(EX_VALUE);
 		e->content.asValue.type = DAT_STRING;
-		e->content.asValue.value.asString = DeepCopyStr(ts->token.value.asString);
+		e->content.asValue.value.asString = DeepCopyStr(lex->token.value.asString);
 		break;
 	case TOK_IDENTIFIER:
-		e = ReadIdentifierExpression(ts);
+		e = ReadIdentifierExpression(lex);
 		break;
 	case TOK_SYMBOL:
-		switch (ts->token.value.asSymbol)
+		switch (lex->token.value.asSymbol)
 		{
 		case SYM_LPAREN:
-			e = ReadExpression(ts);
-			SkipSymbol(ts, SYM_RPAREN);
+			e = ReadExpression(lex);
+			SkipSymbol(lex, SYM_RPAREN);
 			break;
 		case SYM_MINUS:
 			e = MakeExpression(EX_OPERATION);
 			e->content.asOperation.type = OP_NEGATE;
 			e->content.asOperation.isBinary = false;
-			e->content.asOperation.a = ReadExpressionAtom(ts);
+			e->content.asOperation.a = ReadExpressionAtom(lex);
 			e->content.asOperation.b = NULL;
 			break;
 		case SYM_EXCL:
 			e = MakeExpression(EX_OPERATION);
 			e->content.asOperation.type = OP_NOT;
 			e->content.asOperation.isBinary = false;
-			e->content.asOperation.a = ReadExpressionAtom(ts);
+			e->content.asOperation.a = ReadExpressionAtom(lex);
 			e->content.asOperation.b = NULL;
 			break;
 		default:
-			ts->status = TSS_INVALIDTOKEN;
+			lex->status = LEX_INVALIDTOKEN;
 			break;
 		}
 		break;
 	case TOK_KEYWORD: // fall through
 	default:
-		ts->status = TSS_INVALIDTOKEN;
+		lex->status = LEX_INVALIDTOKEN;
 		break;
 	}
 
 	return e;
 }
 
-bool TryReadOperator(TokenStream* ts, OperationType* op)
+bool TryReadOperator(Lexer* lex, OperationType* op)
 {
-	Token tok = PeekToken(ts);
+	Token tok = PeekToken(lex);
 
 	if (tok.type != TOK_SYMBOL)
 		return false;
@@ -384,7 +384,7 @@ bool TryReadOperator(TokenStream* ts, OperationType* op)
 		return false;
 	}
 
-	TokenStream_Next(ts);
+	Lexer_NextToken(lex);
 	return true;
 }
 
@@ -402,13 +402,13 @@ static Expression* MakeBinaryExpression(OperationType op, Expression* left, Expr
 	return e;
 }
 
-static Expression* TryReadBinaryExpression(TokenStream* ts, Expression* left)
+static Expression* TryReadBinaryExpression(Lexer* lex, Expression* left)
 {
 	OperationType op;
-	if (!TryReadOperator(ts, &op)) return left;
+	if (!TryReadOperator(lex, &op)) return left;
 
 	// there's an operator, so there should be another expression
-	Expression* next = ReadExpressionAtom(ts);
+	Expression* next = ReadExpressionAtom(lex);
 	Expression* binary;
 
 	if (left->type == EX_OPERATION && left->content.asOperation.isBinary) // TODO: && compare operation order
@@ -425,34 +425,34 @@ static Expression* TryReadBinaryExpression(TokenStream* ts, Expression* left)
 	}
 
 	// recurse, in case there's another operator
-	return TryReadBinaryExpression(ts, binary);
+	return TryReadBinaryExpression(lex, binary);
 }
 
 #pragma endregion
 
 #pragma region Statements
 
-static bool TryReadStatement(TokenStream* ts, Statement* s);
+static bool TryReadStatement(Lexer* lex, Statement* s);
 
-static Statement* ReadBlock(TokenStream* ts, int* n)
+static Statement* ReadBlock(Lexer* lex, int* n)
 {
 	Statement buffer[CONST_MAXSTATEMENTS];
 	*n = 0;
 
-	SkipSymbol(ts, SYM_LBRACE);
+	SkipSymbol(lex, SYM_LBRACE);
 
-	while (ts->status == TSS_ACTIVE && TryReadStatement(ts, buffer + *n))
+	while (lex->status == LEX_ACTIVE && TryReadStatement(lex, buffer + *n))
 	{
 		(*n)++;
 
 		if (*n > CONST_MAXSTATEMENTS)
 		{
-			ts->status = TSS_TOOMANYSTATEMENTS;
+			lex->status = LEX_TOOMANYSTATEMENTS;
 			return NULL;
 		}
 	}
 
-	SkipSymbol(ts, SYM_RBRACE);
+	SkipSymbol(lex, SYM_RBRACE);
 
 	Statement* list = calloc(*n, sizeof(Statement));
 
@@ -464,58 +464,58 @@ static Statement* ReadBlock(TokenStream* ts, int* n)
 	return list;
 }
 
-static void ReadConditionStatement(TokenStream* ts, Statement* s, StatementType type)
+static void ReadConditionStatement(Lexer* lex, Statement* s, StatementType type)
 {
-	TokenStream_Next(ts);
-	SkipSymbol(ts, SYM_LPAREN);
+	Lexer_NextToken(lex);
+	SkipSymbol(lex, SYM_LPAREN);
 	s->type = type;
 	ST_Condition* cStatement = &(s->content.asCondition);
-	cStatement->condition = ReadExpression(ts);
-	SkipSymbol(ts, SYM_RPAREN);
-	cStatement->statements = ReadBlock(ts, &(cStatement->numStatements));
+	cStatement->condition = ReadExpression(lex);
+	SkipSymbol(lex, SYM_RPAREN);
+	cStatement->statements = ReadBlock(lex, &(cStatement->numStatements));
 }
 
-static bool TryReadKeywordStatement(TokenStream* ts, Statement* s)
+static bool TryReadKeywordStatement(Lexer* lex, Statement* s)
 {
-	switch (ts->token.value.asKeyword)
+	switch (lex->token.value.asKeyword)
 	{
 	case KW_IF:
-		ReadConditionStatement(ts, s, ST_CONDITION);
+		ReadConditionStatement(lex, s, ST_CONDITION);
 		return true;
 	case KW_WHILE:
-		ReadConditionStatement(ts, s, ST_LOOP);
+		ReadConditionStatement(lex, s, ST_LOOP);
 		return true;
 	case KW_RETURN:
-		TokenStream_Next(ts);
+		Lexer_NextToken(lex);
 		s->type = ST_RETURN;
-		s->content.asReturn = ReadExpression(ts);
-		SkipSymbol(ts, SYM_SEMICOLON);
+		s->content.asReturn = ReadExpression(lex);
+		SkipSymbol(lex, SYM_SEMICOLON);
 		return true;
 	}
 
 	return false;
 }
 
-static bool TryReadIdentifierStatement(TokenStream* ts, Statement* s)
+static bool TryReadIdentifierStatement(Lexer* lex, Statement* s)
 {
-	TokenStream_Next(ts);
-	char* identifier = DeepCopyStr(ts->token.value.asString);
-	Token next = PeekToken(ts);
+	Lexer_NextToken(lex);
+	char* identifier = DeepCopyStr(lex->token.value.asString);
+	Token next = PeekToken(lex);
 
-	if (TrySkipSymbol(ts, SYM_1EQUAL))
+	if (TrySkipSymbol(lex, SYM_1EQUAL))
 	{
 		s->type = ST_ASSIGN;
 		s->content.asAssign.left = identifier;
-		s->content.asAssign.right = ReadExpression(ts);
-		SkipSymbol(ts, SYM_SEMICOLON);
+		s->content.asAssign.right = ReadExpression(lex);
+		SkipSymbol(lex, SYM_SEMICOLON);
 		return true;
 	}
-	else if (TrySkipSymbol(ts, SYM_LPAREN))
+	else if (TrySkipSymbol(lex, SYM_LPAREN))
 	{
 		s->type = ST_CALL;
 		s->content.asCall.name = identifier;
-		s->content.asCall.arguments = ReadArgumentList(ts, &(s->content.asCall.numArguments));
-		SkipSymbol(ts, SYM_SEMICOLON);
+		s->content.asCall.arguments = ReadArgumentList(lex, &(s->content.asCall.numArguments));
+		SkipSymbol(lex, SYM_SEMICOLON);
 		return true;
 	}
 
@@ -523,19 +523,19 @@ static bool TryReadIdentifierStatement(TokenStream* ts, Statement* s)
 	return false;
 }
 
-static bool TryReadStatement(TokenStream* ts, Statement* s)
+static bool TryReadStatement(Lexer* lex, Statement* s)
 {
-	Token tok = PeekToken(ts);
+	Token tok = PeekToken(lex);
 
 	if (tok.type == TOK_KEYWORD)
-		return TryReadKeywordStatement(ts, s);
+		return TryReadKeywordStatement(lex, s);
 	
 	// TODO: Are there any statements that begin with a symbol?
 	if (tok.type == TOK_SYMBOL)
 		return false;
 	
 	if (tok.type == TOK_IDENTIFIER)
-		return TryReadIdentifierStatement(ts, s);
+		return TryReadIdentifierStatement(lex, s);
 
 	return false;
 }
@@ -544,15 +544,15 @@ static bool TryReadStatement(TokenStream* ts, Statement* s)
 
 #pragma region Functions
 
-static void ParseFunction(TokenStream* ts, Function* f)
+static void ParseFunction(Lexer* lex, Function* f)
 {
 	f->address = -1;
 	f->id = -1;
-	f->rtype = ReadType(ts);
+	f->rtype = ReadType(lex);
 
 	const Token mainKeyword = { .type = TOK_KEYWORD, .value = { .asKeyword = KW_MAIN } };
 	
-	if (TrySkipToken(ts, mainKeyword))
+	if (TrySkipToken(lex, mainKeyword))
 	{
 		f->isMain = true;
 		f->name = "main";
@@ -560,12 +560,12 @@ static void ParseFunction(TokenStream* ts, Function* f)
 	else
 	{
 		f->isMain = false;
-		f->name = ReadIdentifier(ts);
+		f->name = ReadIdentifier(lex);
 	}
 
-	f->params = ReadParameterList(ts, &(f->numParams));
-	f->locals = ReadParameterList(ts, &(f->numLocals));
-	f->statements = ReadBlock(ts, &(f->numStatements));
+	f->params = ReadParameterList(lex, &(f->numParams));
+	f->locals = ReadParameterList(lex, &(f->numLocals));
+	f->statements = ReadBlock(lex, &(f->numStatements));
 	f->isExternal = false;
 }
 
@@ -594,8 +594,7 @@ SyntaxTree* Parser_ParseFile(char* filePath)
 	SyntaxTree* ast = calloc(1, sizeof(SyntaxTree));
 	Function functionBuffer[MAX_FUNCTIONS];
 	Function* functionPtr = functionBuffer;
-	TokenStream ts;
-	TokenStream_Open(&ts, filePath);
+	Lexer* lex = Lexer_OpenFile(filePath);
 
 	ast->numFunctions = 2; // number of external functions
 
@@ -610,15 +609,15 @@ SyntaxTree* Parser_ParseFile(char* filePath)
 	p[0] = (Parameter){ .name = "ticks", .type = DAT_INT };
 	AddExternalFunction(functionPtr++, "sleep", p, 1, EXTF_SLEEP);
 
-	while (ast->numFunctions <= MAX_FUNCTIONS && HasToken(&ts))
+	while (ast->numFunctions <= MAX_FUNCTIONS && HasToken(lex))
 	{
-		ParseFunction(&ts, functionPtr++);
+		ParseFunction(lex, functionPtr++);
 		ast->numFunctions++;
 	}
 
 	ast->functions = calloc(ast->numFunctions, sizeof(Function));
 	memcpy(ast->functions, functionBuffer, ast->numFunctions * sizeof(Function));
-	TokenStream_Close(&ts);
+	Lexer_Destroy(lex);
 
 	return ast;
 }

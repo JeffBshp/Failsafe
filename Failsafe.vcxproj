@@ -172,7 +172,7 @@
     <ClCompile Include="src\hardware\processor.c" />
     <ClCompile Include="src\language\parser.c" />
     <ClCompile Include="src\language\runner.c" />
-    <ClCompile Include="src\language\tokens.c" />
+    <ClCompile Include="src\language\lexer.c" />
     <ClCompile Include="src\main.c" />
   </ItemGroup>
   <ItemGroup>
@@ -195,7 +195,7 @@
     <ClInclude Include="src\hardware\processor.h" />
     <ClInclude Include="src\language\parser.h" />
     <ClInclude Include="src\language\runner.h" />
-    <ClInclude Include="src\language\tokens.h" />
+    <ClInclude Include="src\language\lexer.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -8,6 +8,8 @@
 #include "tokens.h"
 #include "parser.h"
 
+#pragma region Helpers
+
 static DataType TokenToDataType(Token tok)
 {
 	if (tok.type == TOK_KEYWORD)
@@ -30,46 +32,12 @@ static DataType TokenToDataType(Token tok)
 	return DAT_INVALID;
 }
 
-static DataType ReadType(TokenStream* ts)
-{
-	TokenStream_Next(ts);
-
-	DataType dt = TokenToDataType(ts->token);
-
-	if (ts->status == TSS_ACTIVE)
-	{
-		if (ts->token.type != TOK_KEYWORD)
-			ts->status = TSS_INVALIDTOKEN;
-		else if (dt == DAT_INVALID)
-			ts->status = TSS_INVALIDDATATYPE;
-	}
-
-	return dt;
-}
-
 static char* DeepCopyStr(char* str)
 {
 	int n = strlen(str) + 1;
 	char* dest = malloc(n * sizeof(char));
 	strncpy(dest, str, n);
 	return dest;
-}
-
-static char* ReadIdentifier(TokenStream* ts)
-{
-	char* identifier = NULL;
-
-	TokenStream_Next(ts);
-
-	if (ts->status == TSS_ACTIVE)
-	{
-		if (ts->token.type == TOK_IDENTIFIER)
-			identifier = DeepCopyStr(ts->token.value.asString);
-		else
-			ts->status = TSS_INVALIDTOKEN;
-	}
-	
-	return identifier;
 }
 
 static inline bool SameTokenType(Token a, Token b)
@@ -124,6 +92,50 @@ static Token PeekToken(TokenStream* ts)
 	return ts->token;
 }
 
+static bool HasToken(TokenStream* ts)
+{
+	PeekToken(ts);
+	return ts->status == TSS_ACTIVE;
+}
+
+#pragma endregion
+
+#pragma region BasicParsing
+
+static DataType ReadType(TokenStream* ts)
+{
+	TokenStream_Next(ts);
+
+	DataType dt = TokenToDataType(ts->token);
+
+	if (ts->status == TSS_ACTIVE)
+	{
+		if (ts->token.type != TOK_KEYWORD)
+			ts->status = TSS_INVALIDTOKEN;
+		else if (dt == DAT_INVALID)
+			ts->status = TSS_INVALIDDATATYPE;
+	}
+
+	return dt;
+}
+
+static char* ReadIdentifier(TokenStream* ts)
+{
+	char* identifier = NULL;
+
+	TokenStream_Next(ts);
+
+	if (ts->status == TSS_ACTIVE)
+	{
+		if (ts->token.type == TOK_IDENTIFIER)
+			identifier = DeepCopyStr(ts->token.value.asString);
+		else
+			ts->status = TSS_INVALIDTOKEN;
+	}
+	
+	return identifier;
+}
+
 static bool TryReadParameter(TokenStream* ts, Parameter* p)
 {
 	Token next = PeekToken(ts);
@@ -169,7 +181,7 @@ static Parameter* ReadParameterList(TokenStream* ts, int* n)
 
 	SkipSymbol(ts, SYM_RPAREN);
 
-	Parameter* list = malloc(*n * sizeof(Parameter));
+	Parameter* list = calloc(*n, sizeof(Parameter));
 
 	for (int i = 0; i < *n; i++)
 	{
@@ -178,6 +190,10 @@ static Parameter* ReadParameterList(TokenStream* ts, int* n)
 
 	return list;
 }
+
+#pragma endregion
+
+#pragma region Expressions
 
 static Expression* MakeExpression(ExpressionType type)
 {
@@ -234,7 +250,6 @@ static Expression* ReadIdentifierExpression(TokenStream* ts)
 		e = MakeExpression(EX_CALL);
 		e->content.asCall.name = identifier;
 		e->content.asCall.arguments = ReadArgumentList(ts, &(e->content.asCall.numArguments));
-		SkipSymbol(ts, SYM_RPAREN);
 	}
 	else
 	{
@@ -244,8 +259,6 @@ static Expression* ReadIdentifierExpression(TokenStream* ts)
 
 	return e;
 }
-
-static Function* ParseFunction(TokenStream* ts);
 
 static Expression* ReadExpressionAtom(TokenStream* ts)
 {
@@ -277,21 +290,6 @@ static Expression* ReadExpressionAtom(TokenStream* ts)
 	case TOK_IDENTIFIER:
 		e = ReadIdentifierExpression(ts);
 		break;
-	case TOK_KEYWORD:
-		switch (ts->token.value.asKeyword)
-		{
-		case KW_VOID:
-		case KW_INT:
-		case KW_FLOAT:
-		case KW_STRING:
-			ts->keepToken = true;
-			e = MakeExpression(EX_FUNCTION);
-			e->content.asFunction = ParseFunction(ts);
-		default:
-			ts->status = TSS_INVALIDTOKEN;
-			break;
-		}
-		break;
 	case TOK_SYMBOL:
 		switch (ts->token.value.asSymbol)
 		{
@@ -318,6 +316,7 @@ static Expression* ReadExpressionAtom(TokenStream* ts)
 			break;
 		}
 		break;
+	case TOK_KEYWORD: // fall through
 	default:
 		ts->status = TSS_INVALIDTOKEN;
 		break;
@@ -389,7 +388,7 @@ bool TryReadOperator(TokenStream* ts, OperationType* op)
 	return true;
 }
 
-static Expression* MakeBinaryExpression(TokenStream* ts, OperationType op, Expression* left, Expression* right)
+static Expression* MakeBinaryExpression(OperationType op, Expression* left, Expression* right)
 {
 	Expression* e = malloc(sizeof(Expression));
 	e->type = EX_OPERATION;
@@ -406,8 +405,6 @@ static Expression* MakeBinaryExpression(TokenStream* ts, OperationType op, Expre
 static Expression* TryReadBinaryExpression(TokenStream* ts, Expression* left)
 {
 	OperationType op;
-
-	if (left->type == EX_FUNCTION) return left; // don't allow operations on functions
 	if (!TryReadOperator(ts, &op)) return left;
 
 	// there's an operator, so there should be another expression
@@ -418,18 +415,22 @@ static Expression* TryReadBinaryExpression(TokenStream* ts, Expression* left)
 	{
 		// change order of operations because the current op takes priority over the previous (left) op
 		EX_Operation* leftOp = &(left->content.asOperation);
-		Expression* right = MakeBinaryExpression(ts, op, leftOp->b, next);
-		binary = MakeBinaryExpression(ts, leftOp->type, leftOp->a, right);
+		Expression* right = MakeBinaryExpression(op, leftOp->b, next);
+		binary = MakeBinaryExpression(leftOp->type, leftOp->a, right);
 	}
 	else
 	{
 		// wrap the two operand expressions in a binary operation expression
-		binary = MakeBinaryExpression(ts, op, left, next);
+		binary = MakeBinaryExpression(op, left, next);
 	}
 
 	// recurse, in case there's another operator
 	return TryReadBinaryExpression(ts, binary);
 }
+
+#pragma endregion
+
+#pragma region Statements
 
 static bool TryReadStatement(TokenStream* ts, Statement* s);
 
@@ -453,7 +454,7 @@ static Statement* ReadBlock(TokenStream* ts, int* n)
 
 	SkipSymbol(ts, SYM_RBRACE);
 
-	Statement* list = malloc(*n * sizeof(Statement));
+	Statement* list = calloc(*n, sizeof(Statement));
 
 	for (int i = 0; i < *n; i++)
 	{
@@ -495,12 +496,6 @@ static bool TryReadKeywordStatement(TokenStream* ts, Statement* s)
 	return false;
 }
 
-static bool TryReadSymbolStatement(TokenStream* ts, Statement* s)
-{
-	// TODO: Are there any statements that begin with a symbol?
-	return false;
-}
-
 static bool TryReadIdentifierStatement(TokenStream* ts, Statement* s)
 {
 	TokenStream_Next(ts);
@@ -535,8 +530,9 @@ static bool TryReadStatement(TokenStream* ts, Statement* s)
 	if (tok.type == TOK_KEYWORD)
 		return TryReadKeywordStatement(ts, s);
 	
+	// TODO: Are there any statements that begin with a symbol?
 	if (tok.type == TOK_SYMBOL)
-		return TryReadSymbolStatement(ts, s);
+		return false;
 	
 	if (tok.type == TOK_IDENTIFIER)
 		return TryReadIdentifierStatement(ts, s);
@@ -544,21 +540,182 @@ static bool TryReadStatement(TokenStream* ts, Statement* s)
 	return false;
 }
 
-static Function* ParseFunction(TokenStream* ts)
+#pragma endregion
+
+#pragma region Functions
+
+static void ParseFunction(TokenStream* ts, Function* f)
 {
-	Function* f = malloc(sizeof(Function));
+	f->address = -1;
+	f->id = -1;
 	f->rtype = ReadType(ts);
-	f->name = ReadIdentifier(ts);
+
+	const Token mainKeyword = { .type = TOK_KEYWORD, .value = { .asKeyword = KW_MAIN } };
+	
+	if (TrySkipToken(ts, mainKeyword))
+	{
+		f->isMain = true;
+		f->name = "main";
+	}
+	else
+	{
+		f->isMain = false;
+		f->name = ReadIdentifier(ts);
+	}
+
 	f->params = ReadParameterList(ts, &(f->numParams));
 	f->locals = ReadParameterList(ts, &(f->numLocals));
 	f->statements = ReadBlock(ts, &(f->numStatements));
 	f->isExternal = false;
-	return f;
 }
 
-Function* Parser_ParseFile(char* filePath)
+static void AddExternalFunction(Function* f, char* name, Parameter* params, int numParams, ExternalFunctionID id)
 {
+	f->rtype = DAT_VOID;
+	f->name = name;
+	f->numParams = numParams;
+	f->params = params;
+	f->numLocals = 0;
+	f->locals = NULL;
+	f->numStatements = 0;
+	f->statements = NULL;
+	f->isMain = false;
+	f->isExternal = true;
+	f->id = id;
+}
+
+#pragma endregion
+
+// TODO: lots of error handling
+SyntaxTree* Parser_ParseFile(char* filePath)
+{
+	enum { MAX_FUNCTIONS = 100 };
+
+	SyntaxTree* ast = calloc(1, sizeof(SyntaxTree));
+	Function functionBuffer[MAX_FUNCTIONS];
+	Function* functionPtr = functionBuffer;
 	TokenStream ts;
 	TokenStream_Open(&ts, filePath);
-	return ParseFunction(&ts);
+
+	ast->numFunctions = 2; // number of external functions
+
+	// "print" function
+	Parameter* p = calloc(2, sizeof(Parameter));
+	p[0] = (Parameter){ .name = "str", .type = DAT_STRING };
+	p[1] = (Parameter){ .name = "val", .type = DAT_INT };
+	AddExternalFunction(functionPtr++, "print", p, 2, EXTF_PRINT);
+
+	// "sleep" function
+	p = calloc(1, sizeof(Parameter));
+	p[0] = (Parameter){ .name = "ticks", .type = DAT_INT };
+	AddExternalFunction(functionPtr++, "sleep", p, 1, EXTF_SLEEP);
+
+	while (ast->numFunctions <= MAX_FUNCTIONS && HasToken(&ts))
+	{
+		ParseFunction(&ts, functionPtr++);
+		ast->numFunctions++;
+	}
+
+	ast->functions = calloc(ast->numFunctions, sizeof(Function));
+	memcpy(ast->functions, functionBuffer, ast->numFunctions * sizeof(Function));
+	TokenStream_Close(&ts);
+
+	return ast;
 }
+
+#pragma region Destroy
+
+static void FreeExpression(Expression* e);
+static void FreeStatement(Statement* s);
+
+static void FreeCondition(ST_Condition cond)
+{
+	for (int i = 0; i < cond.numStatements; i++)
+		FreeStatement(cond.statements + i);
+
+	FreeExpression(cond.condition);
+}
+
+static void FreeCall(ST_Call call)
+{
+	for (int i = 0; i < call.numArguments; i++)
+		FreeExpression(call.arguments + i);
+
+	free(call.name);
+	free(call.arguments);
+}
+
+static void FreeExpression(Expression* e)
+{
+	if (e == NULL) return;
+
+	switch (e->type)
+	{
+	case EX_VALUE:
+		if (e->content.asValue.type == DAT_STRING)
+			free(e->content.asValue.value.asString);
+		break;
+	case EX_READ:
+		free(e->content.asRead);
+		break;
+	case EX_OPERATION:
+		FreeExpression(e->content.asOperation.a);
+		FreeExpression(e->content.asOperation.b);
+		break;
+	case EX_CALL:
+		FreeCall(e->content.asCall);
+		break;
+	}
+}
+
+static void FreeStatement(Statement* s)
+{
+	switch (s->type)
+	{
+	case ST_ASSIGN:
+		free(s->content.asAssign.left);
+		FreeExpression(s->content.asAssign.right);
+		break;
+	case ST_CONDITION: // fall through
+	case ST_LOOP: FreeCondition(s->content.asCondition); break;
+	case ST_CALL: FreeCall(s->content.asCall); break;
+	case ST_RETURN: FreeExpression(s->content.asReturn); break;
+	}
+}
+
+static void FreeFunction(Function* f)
+{
+	// The external functions are initialized with string literals, which cannot be freed.
+	if (!f->isExternal)
+	{
+		for (int i = 0; i < f->numParams; i++)
+			free(f->params[i].name);
+
+		for (int i = 0; i < f->numLocals; i++)
+			free(f->locals[i].name);
+
+		// Name of "main" is lexed as a keyword and then points to a literal
+		if (!f->isMain) free(f->name);
+	}
+
+	for (int i = 0; i < f->numStatements; i++)
+		FreeStatement(f->statements + i);
+
+	free(f->params);
+	free(f->locals);
+	free(f->statements);
+}
+
+void Parser_Destroy(SyntaxTree* ast)
+{
+	if (ast != NULL)
+	{
+		for (int i = 0; i < ast->numFunctions; i++)
+			FreeFunction(ast->functions + i);
+
+		free(ast->functions);
+		free(ast);
+	}
+}
+
+#pragma endregion

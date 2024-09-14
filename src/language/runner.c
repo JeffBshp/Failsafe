@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include "SDL.h"
 #include "runner.h"
 #include "parser.h"
 
@@ -10,7 +11,7 @@ static inline EX_Value InvalidValue()
 	return (EX_Value) { .type = DAT_INVALID, .value = NULL };
 }
 
-static Variable* FindVar(Context* c, char* name)
+static Variable* FindVar(RunContext* c, char* name)
 {
 	for (int i = 0; i < c->numVars; i++)
 	{
@@ -20,15 +21,10 @@ static Variable* FindVar(Context* c, char* name)
 			return var;
 	}
 
-	if (c->parent != NULL)
-	{
-		return FindVar(c->parent, name); // recurse
-	}
-
 	return NULL;
 }
 
-static EX_Value ReadVar(Context* c, EX_Read r)
+static EX_Value ReadVar(RunContext* c, EX_Read r)
 {
 	Variable* var = FindVar(c, r);
 	if (var == NULL) return InvalidValue();
@@ -40,12 +36,12 @@ static EX_Value ReadVar(Context* c, EX_Read r)
 	};
 }
 
-static EX_Value Evaluate(Context* c, Expression* e);
-static bool ExecuteStatement(Context* c, Statement* s);
+static EX_Value Evaluate(RunContext* c, Expression* e);
+static bool ExecuteStatement(RunContext* c, Statement* s);
 
 #pragma region Operations
 
-static EX_Value OpNegate(Context* c, EX_Operation op)
+static EX_Value OpNegate(RunContext* c, EX_Operation op)
 {
 	EX_Value a = Evaluate(c, op.a);
 	ValUnion result;
@@ -60,7 +56,7 @@ static EX_Value OpNegate(Context* c, EX_Operation op)
 	return (EX_Value) { .type = DAT_BOOL, .value = result };;
 }
 
-static EX_Value OpNot(Context* c, EX_Operation op)
+static EX_Value OpNot(RunContext* c, EX_Operation op)
 {
 	EX_Value a = Evaluate(c, op.a);
 	ValUnion result;
@@ -77,7 +73,7 @@ static EX_Value OpNot(Context* c, EX_Operation op)
 
 #pragma region Arithmetic
 
-static EX_Value OpArithmetic(Context* c, EX_Operation op, bool (opFunction)(DataType, ValUnion, ValUnion, ValUnion*))
+static EX_Value OpArithmetic(RunContext* c, EX_Operation op, bool (opFunction)(DataType, ValUnion, ValUnion, ValUnion*))
 {
 	EX_Value a = Evaluate(c, op.a);
 	EX_Value b = Evaluate(c, op.b);
@@ -145,7 +141,7 @@ static bool OpDiv(DataType type, ValUnion a, ValUnion b, ValUnion* result)
 
 #pragma region Boolean
 
-static EX_Value OpBoolean(Context* c, EX_Operation op, bool (*opFunction)(DataType, ValUnion, ValUnion, bool*))
+static EX_Value OpBoolean(RunContext* c, EX_Operation op, bool (*opFunction)(DataType, ValUnion, ValUnion, bool*))
 {
 	EX_Value a = Evaluate(c, op.a);
 	EX_Value b = Evaluate(c, op.b);
@@ -216,7 +212,7 @@ static bool OpNotEq(DataType type, ValUnion a, ValUnion b, bool* result)
 
 #pragma endregion
 
-static EX_Value EvaluateOperation(Context* c, EX_Operation op)
+static EX_Value EvaluateOperation(RunContext* c, EX_Operation op)
 {
 	switch (op.type)
 	{
@@ -236,20 +232,33 @@ static EX_Value EvaluateOperation(Context* c, EX_Operation op)
 	return InvalidValue();
 }
 
-static EX_Value CallFunction(Context* c, ST_Call call)
+static EX_Value CallFunction(RunContext* c, ST_Call call)
 {
-	Variable* v = FindVar(c, call.name);
-	if (v == NULL || v->type != DAT_FUNCTION) return InvalidValue();
+	// find the function
+	Function* function = NULL;
+	for (int i = 0; i < c->ast->numFunctions; i++)
+	{
+		Function* f = c->ast->functions + i;
 
-	Function* function = v->value.asFunction;
-	if (call.numArguments != function->numParams) return InvalidValue();
+		if (0 == strcmp(f->name, call.name))
+		{
+			function = f;
+			break;
+		}
+	}
 
-	Context subContext = { .parent = c, .ret = false };
+	if (function == NULL || call.numArguments != function->numParams)
+		return InvalidValue();
+
+	// give the function a new context
+	RunContext subContext = { .ret = false };
+	subContext.ast = c->ast;
 	subContext.numVars = function->numParams + function->numLocals;
-	subContext.vars = malloc(subContext.numVars * sizeof(Variable));
+	subContext.vars = calloc(subContext.numVars, sizeof(Variable));
 	subContext.rVal.type = function->rtype;
 	subContext.rVal.value.asString = NULL;
 
+	// evaluate args
 	for (int i = 0; i < call.numArguments; i++)
 	{
 		EX_Value arg = Evaluate(c, call.arguments + i);
@@ -261,6 +270,7 @@ static EX_Value CallFunction(Context* c, ST_Call call)
 		var->value = arg.value; // shallow copy
 	}
 
+	// initialize locals
 	for (int i = 0; i < function->numLocals; i++)
 	{
 		Variable* var = subContext.vars + call.numArguments + i;
@@ -269,10 +279,10 @@ static EX_Value CallFunction(Context* c, ST_Call call)
 		var->value.asString = NULL;
 	}
 
-	if (function->isExternal)
+	// execute
+	switch (function->id)
 	{
-		// There is one "external" function named "print" that the program can call.
-		//
+	case EXTF_PRINT:
 		if (subContext.numVars == 2 &&
 			subContext.vars[0].type == DAT_STRING &&
 			subContext.vars[1].type == DAT_INT)
@@ -281,24 +291,34 @@ static EX_Value CallFunction(Context* c, ST_Call call)
 			int arg2 = subContext.vars[1].value.asInt;
 			printf("%s %d\n", arg1, arg2);
 		}
-		else
+		break;
+	case EXTF_SLEEP:
+		if (subContext.numVars == 1 &&
+			subContext.vars[0].type == DAT_INT)
 		{
-			printf("\n");
+			int arg = subContext.vars[0].value.asInt;
+			SDL_Delay(arg);
 		}
-	}
-	else
-	{
+		break;
+	default:
 		for (int i = 0; i < function->numStatements; i++)
 		{
 			if (!ExecuteStatement(&subContext, function->statements + i)) break;
-			if (subContext.ret) return subContext.rVal;
+			if (subContext.ret) break;
 		}
+		break;
 	}
 
-	return (EX_Value) { .type = DAT_VOID, .value.asString = NULL };
+	EX_Value rval = subContext.ret
+		? subContext.rVal
+		: (EX_Value) { .type = DAT_VOID, .value.asString = NULL };
+
+	free(subContext.vars);
+
+	return rval;
 }
 
-static EX_Value Evaluate(Context* c, Expression* e)
+static EX_Value Evaluate(RunContext* c, Expression* e)
 {
 	switch (e->type)
 	{
@@ -313,7 +333,7 @@ static EX_Value Evaluate(Context* c, Expression* e)
 	}
 }
 
-static bool Assign(Context* c, ST_Assign a)
+static bool Assign(RunContext* c, ST_Assign a)
 {
 	Variable* var = FindVar(c, a.left);
 	if (var == NULL) return false;
@@ -325,7 +345,7 @@ static bool Assign(Context* c, ST_Assign a)
 	return true;
 }
 
-static bool Condition(Context* c, ST_Condition cond)
+static bool Condition(RunContext* c, ST_Condition cond)
 {
 	EX_Value evaluatedCondition = Evaluate(c, cond.condition);
 	if (evaluatedCondition.type != DAT_BOOL) return false;
@@ -341,7 +361,7 @@ static bool Condition(Context* c, ST_Condition cond)
 	return true;
 }
 
-static bool Loop(Context* c, ST_Condition cond)
+static bool Loop(RunContext* c, ST_Condition cond)
 {
 	EX_Value evaluatedCondition = Evaluate(c, cond.condition);
 	if (evaluatedCondition.type != DAT_BOOL) return false;
@@ -359,7 +379,7 @@ static bool Loop(Context* c, ST_Condition cond)
 	return true;
 }
 
-static bool Return(Context* c, ST_Return r)
+static bool Return(RunContext* c, ST_Return r)
 {
 	EX_Value v = Evaluate(c, r);
 	if (v.type != c->rVal.type) return false;
@@ -369,7 +389,7 @@ static bool Return(Context* c, ST_Return r)
 	return true;
 }
 
-static bool ExecuteStatement(Context* c, Statement* s)
+static bool ExecuteStatement(RunContext* c, Statement* s)
 {
 	switch (s->type)
 	{
@@ -386,53 +406,39 @@ static bool ExecuteStatement(Context* c, Statement* s)
 	}
 }
 
-void Runner_Execute(Function* f)
+void Runner_Execute(SyntaxTree* ast)
 {
-	// Create a root context that contains the main function as a variable
-	Context root;
-	root.parent = NULL;
-	root.numVars = 2;
-	root.vars = malloc(2 * sizeof(Variable));
-	root.vars->name = f->name;
-	root.vars->type = DAT_FUNCTION;
-	root.vars->value.asFunction = f;
+	// Create a root context that contains the functions as variables
+	RunContext root;
+	root.ast = ast;
+	root.numVars = 0;
+	root.vars = NULL;
 	root.rVal.type = DAT_VOID;
 	root.rVal.value.asString = NULL;
 	root.ret = false;
 
-	// Create a root statement that calls the main function
-	ST_Call call;
-	Expression args;
-	call.name = f->name;
-	call.numArguments = 0;
-	call.arguments = &args;
-
-	// Params for the "print" function
-	Parameter* p = malloc(2 * sizeof(Parameter));
-	p[0] = (Parameter){ .name = "str", .type = DAT_STRING };
-	p[1] = (Parameter){ .name = "val", .type = DAT_INT };
-
-	// Create an "external" function, which is how the virtual program
-	// will interface with the game world.
-	Function fp =
+	// find the main function
+	Function* fMain = NULL;
+	for (int i = 0; i < ast->numFunctions; i++)
 	{
-		.rtype = DAT_VOID,
-		.name = "print",
-		.numParams = 2,
-		.params = p,
-		.numLocals = 0,
-		.locals = NULL,
-		.numStatements = 0,
-		.statements = NULL,
-		.isExternal = true,
-	};
+		Function* f = ast->functions + i;
+		if (f->isMain)
+		{
+			fMain = f;
+			break;
+		}
+	}
 
-	// make the function available as a variable to the virtual program
-	Variable* fv = root.vars + 1;
-	fv->name = fp.name;
-	fv->type = DAT_FUNCTION;
-	fv->value.asFunction = &fp;
+	if (fMain != NULL)
+	{
+		// Create a root statement that calls the main function
+		ST_Call call;
+		Expression args;
+		call.name = fMain->name;
+		call.numArguments = 0;
+		call.arguments = &args;
 
-	EX_Value rVal = CallFunction(&root, call);
-	printf("Returned %d (DataType %d)\n", rVal.value.asInt, rVal.type);
+		EX_Value rVal = CallFunction(&root, call);
+		printf("Returned %d (DataType %d)\n", rVal.value.asInt, rVal.type);
+	}
 }

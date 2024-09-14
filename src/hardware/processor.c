@@ -3,40 +3,17 @@
 #include <stdbool.h>
 #include "SDL.h"
 #include "processor.h"
+#include "memory.h"
 
-// Instruction Bits:
-// 15-13: 3-Bit Op Code
-// 12-10: Register A
-// 9-7: Register B
-// 9-0: Immediate 10 upper bits for LUI
-// 6-0: Immediate 7-Bit Signed Integer
-// 6-3: Not used for ADD, NAND
-// 2-0: Register C
-
-// Instruction Pseudocode:
-// 000 (ADD):	RegA = RegB + RegC;
-// 001 (ADDI):	RegA = RegB + Immed;
-// 010 (NAND):	RegA = ~(RegB & RegC);
-// 011 (LUI):	RegA = Immed10 << 6; (sets upper 10 bits)
-// 100 (SW):	Memory[RegB + Immed] = RegA;
-// 101 (LW):	RegA = Memory[RegB + Immed];
-// 110 (BEQ):	if (RegA == RegB) PC += Immed;
-// 111: instruction is further decoded by bits 6 and 5.
-//		00 (JALR):	RegA = PC+1; PC = RegB; (jump to B and link A)
-//		01 (SLEEP): Sleep for a certain length of time based on the lowest 5 bits
-//		10 (NOP): No operation. May replace this instruction with something else.
-//		11 (HALT): Stop execution immediately.
-
-// Notes:
 // Based on the RiSC-16 Instruction Set Architecture.
-// Immed can range from -64 to +63.
-// SW, LW, and BEQ use relative addresses with Immed.
-// Register 0 always contains zero.
-// Register 6 is designated as the stack pointer.
-// Register 7 is recommended for holding the return address when calling a subroutine via JALR.
-// A subroutine can then return with: JALR R0 R7 (link to R0, which does nothing, and jump to R7).
 
-// TODO: Write a compiler and/or assembler
+// TODO:
+// Constrain stack size and program size.
+// Send args to main function (place them on the stack at program startup).
+// Send output to the game world via a proper I/O protocol (for now there are just hardcoded functions).
+// Add various I/O devices, including disk storage.
+// Handle libraries and multiple processes, possibly with an operating system.
+// Write an assembler and disassembler.
 
 Processor* Processor_New(Memory memory)
 {
@@ -48,93 +25,145 @@ Processor* Processor_New(Memory memory)
 void Processor_Reset(Processor* p, uword startAddress, uword stackPointer)
 {
 	p->programCounter = startAddress;
-	p->registers[6] = stackPointer;
+	p->startAddress = 0;
+	p->registers[REG_STACK_PTR] = stackPointer;
 }
 
-static inline uword RegA(Processor* p)
+#pragma region Helpers
+
+static inline void SetReg(uword* r, uword i, uword value)
 {
-	return (p->instruction >> 10) & MASK_LOWER3BITS;
+	if (i > 0) r[i] = value;
 }
 
-static inline uword RegB(Processor* p)
+static inline void Shift(uword* r, uword i, word n)
 {
-	return p->registers[(p->instruction >> 7) & MASK_LOWER3BITS];
+	uword result = n < 0 ? r[i] << n : r[i] >> n;
+	SetReg(r, i, result);
 }
 
-static inline uword RegC(Processor* p)
+static inline void Comp(uword* r, bool result)
 {
-	return p->registers[p->instruction & MASK_LOWER3BITS];
+	r[REG_RESULT] = result ? 1 : 0;
 }
 
-static inline word Immediate(Processor* p)
+static inline void Print(uword* r, uword* mem, Instruction instr)
 {
-	return ((word)(p->instruction << 9)) >> 9;
+	uword fp = r[REG_FRAME_PTR]; // args are on the stack, starting at the frame pointer
+	uword strptr = mem[fp]; // first arg is a pointer to the char array in virtual memory
+	char* arg1 = mem + strptr; // this is the pointer in real-life memory
+	word arg2 = mem[fp + 1]; // second arg is an integer
+	printf(">>> %s %d\n", arg1, arg2);
 }
 
-static inline uword MemAddress(Processor* p)
-{
-	return (uword)(RegB(p) + Immediate(p));
-}
-
-static inline void SetReg(Processor* p, uword value)
-{
-	uword i = RegA(p);
-	if (i > 0) p->registers[i] = value;
-}
+#pragma endregion
 
 void Processor_Run(Processor* p)
 {
+	const bool log = false;
+
+	uword* r = &(p->registers);
+	uword* mem = p->memory.data;
 	bool halt = false;
 
-	while (!halt)
+	while (!halt && p->programCounter < p->memory.n)
 	{
-		p->instruction = p->memory.data[p->programCounter];
+		Instruction instr;
+		instr.bits = mem[p->programCounter];
+		p->instruction = instr.bits;
 		uword next = p->programCounter + 1;
 		uword result = 0;
-
-		switch ((p->instruction >> 13) & MASK_LOWER3BITS)
+		switch (instr.opCode)
 		{
-		case 0: // ADD
-			SetReg(p, RegB(p) + RegC(p));
+		case INSTR_ADD:
+			SetReg(r, instr.regA, r[instr.regB] + r[instr.regC]);
+			if (log) printf("ADD %d\n", r[instr.regA]);
 			break;
-		case 1: // ADDI
-			SetReg(p, RegB(p) + Immediate(p));
+		case INSTR_ADDI:
+			SetReg(r, instr.regA, r[instr.regB] + instr.immed7);
+			if (log) printf("ADDI %d\n", r[instr.regA]);
 			break;
-		case 2: // NAND
-			SetReg(p, ~(RegB(p) & RegC(p)));
+		case INSTR_NAND:
+			SetReg(r, instr.regA, ~(r[instr.regB] & r[instr.regC]));
+			if (log) printf("NAND %d\n", r[instr.regA]);
 			break;
-		case 3: // LUI
-			SetReg(p, (p->instruction << 6) & MASK_UPPER10BITS);
+		case INSTR_LUI:
+			SetReg(r, instr.regA, instr.immed10 << 6);
+			if (log) printf("LUI %d\n", r[instr.regA]);
 			break;
-		case 4: // SW
-			p->memory.data[MemAddress(p)] = p->registers[RegA(p)];
+		case INSTR_SW:
+			mem[r[instr.regB] + instr.immed7] = r[instr.regA];
+			if (log) printf("SW %d at %d\n", r[instr.regA], r[instr.regB] + instr.immed7);
 			break;
-		case 5: // LW
-			SetReg(p, p->memory.data[MemAddress(p)]);
+		case INSTR_LW:
+			SetReg(r, instr.regA, mem[r[instr.regB] + instr.immed7]);
+			if (log) printf("LW %d from %d\n", r[instr.regA], r[instr.regB] + instr.immed7);
 			break;
-		case 6: // BEQ
-			if (p->registers[RegA(p)] == RegB(p))
-				next += Immediate(p);
+		case INSTR_BEZ:
+			if (log) printf("BEZ (%d) --> %d\n", r[instr.regA], instr.immed10);
+			if (r[instr.regA] == 0)
+				next += instr.immed10;
 			break;
-		case 7: // JALR or SYS
-
-			SetReg(p, next);
-			next = RegB(p);
-			result = Immediate(p);
-
-			// Handle extended op code
-			switch (result & MASK_OPX)
+		case INSTR_EXT: // extended op code
+			switch (instr.regA)
 			{
-			case SYS_SLEEP:
-				SDL_Delay((result & MASK_SYSVALUE) * 100);
+			case OPX_PUSH:
+				if (log) printf("PUSH %d (%d)\n", r[instr.regB], r[REG_STACK_PTR]);
+				mem[(r[REG_STACK_PTR])++] = r[instr.regB];
 				break;
-			case SYS_NOP:
+			case OPX_POP:
+				SetReg(r, instr.regB, mem[--(r[REG_STACK_PTR])]);
+				if (log) printf("POP %d (%d)\n", r[instr.regB], r[REG_STACK_PTR]);
 				break;
-			case SYS_HALT:
+			case OPX_CALL:
+				switch (r[instr.regB])
+				{
+				case EXTCALL_PRINT:
+					if (log) printf("CALL print (%d)\n", instr.immed7);
+					Print(r, mem, instr);
+					r[REG_STACK_PTR] = r[REG_FRAME_PTR];
+					break;
+				case EXTCALL_SLEEP:
+					if (log) printf("CALL sleep(%d)\n", mem[r[REG_FRAME_PTR]]);
+					SDL_Delay(mem[r[REG_FRAME_PTR]]);
+					r[REG_STACK_PTR] = r[REG_FRAME_PTR];
+					break;
+				default:
+					if (log) printf("CALL %d (%d)\n", r[instr.regB], instr.immed7);
+					r[REG_STACK_PTR] += instr.immed7;
+					r[REG_RET_ADDR] = next;
+					next = p->startAddress + r[instr.regB];
+					break;
+				}
+				break;
+			case OPX_RET:
+				if (log) printf("RET %d\n", r[REG_RET_ADDR]);
+				r[REG_STACK_PTR] = r[REG_FRAME_PTR];
+				next = r[REG_RET_ADDR];
+				break;
+			case OPX_SHIFT:
+				Shift(r, instr.regB, instr.immed7);
+				if (log) printf("SHIFT %d (%d)\n", r[instr.regB], instr.immed7);
+				break;
+			case OPX_COMP:
+				if (log) printf("COMP (%d) %d (%d)\n", r[instr.regB], instr.comp, r[instr.regC]);
+				switch (instr.comp)
+				{
+				case COMP_EQ: Comp(r, r[instr.regB] == r[instr.regC]); break;
+				case COMP_NE: Comp(r, r[instr.regB] != r[instr.regC]); break;
+				case COMP_LT: Comp(r, r[instr.regB] < r[instr.regC]); break;
+				case COMP_LE: Comp(r, r[instr.regB] <= r[instr.regC]); break;
+				case COMP_GT: Comp(r, r[instr.regB] > r[instr.regC]); break;
+				case COMP_GE: Comp(r, r[instr.regB] >= r[instr.regC]); break;
+				}
+				break;
+			case OPX_RESERVED:
+				break;
+			case OPX_HALT:
+				if (log) printf("HALT\n");
 				halt = true;
 				break;
 			}
-
 			break;
 		}
 

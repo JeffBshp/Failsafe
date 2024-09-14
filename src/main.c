@@ -24,31 +24,48 @@
 #include "language/tokens.h"
 #include "language/parser.h"
 #include "language/runner.h"
+#include "language/compiler.h"
 
 #include "hardware/memory.h"
 #include "hardware/processor.h"
 
+static void CodeDemo(void* threadData)
+{
+	// Parse source file of the example program
+	SyntaxTree* ast = Parser_ParseFile("./code/example.txt");
+
+	// The runner interprets and executes the AST in real time, starting with the "main" function.
+	Runner_Execute(ast);
+
+	// Alternatively, the program can be fully compiled and run on a virtual processor.
+	Program* p = Compiler_GenerateCode(ast);
+
+	if (p->status == COMPILE_SUCCESS)
+	{
+		Memory mem = Memory_New(1024); // Create a virtual memory unit
+		SDL_memcpy(mem.data, p->bin, p->length * sizeof(uword)); // Load program into virtual memory
+		Memory_WriteFile(mem, "./code/example.mem"); // Save the raw binary to a file
+		Processor* proc = Processor_New(mem); // Create a virtual processor
+		Processor_Reset(proc, p->mainAddress, 512); // Set the addresses of the program and the stack
+		Processor_Run(proc); // Run the processor until it halts
+
+		Compiler_Destroy(p);
+		free(proc);
+		Memory_Destroy(mem);
+	}
+	else
+	{
+		printf("Compile Error: %d\n", p->status);
+	}
+
+	Parser_Destroy(ast);
+
+	printf("\n\n\n");
+}
+
 int main(int argc, char* argv[])
 {
-	Memory mem = Memory_New(512); // Create a virtual memory unit
-	// Read the machine-language example program into virtual memory.
-	// I "compiled" it by hand. It just adds a series of numbers and writes the results to memory.
-	Memory_ReadFile(mem, "./code/example-in.mem");
-	Processor* proc = Processor_New(mem); // Create a virtual processor
-	Processor_Reset(proc, 0x40, 0); // Set start address to its hardcoded location
-	Processor_Run(proc); // Run the processor until it halts
-	Memory_WriteFile(mem, "./code/example-out.mem"); // Write the resulting memory to another file
-	free(proc);
-	Memory_Destroy(mem);
-
-	// Load the other program. This one is written in a higher level, C-like language.
-	// The parser creates an abstract syntax tree (AST) and returns a root Function object.
-	Function* f = Parser_ParseFile("./code/example.txt");
-	// The runner interprets the AST and runs it, starting with the root function.
-	Runner_Execute(f);
-	printf("\n\n\n");
-
-
+	SDL_DetachThread(SDL_CreateThread(&CodeDemo, "Code Demo Thread", NULL));
 
 	Camera cam;
 	NoiseMaker nm = { .initialized = false };

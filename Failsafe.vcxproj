@@ -156,6 +156,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\language\compiler.c" />
     <ClCompile Include="src\engine\camera.c" />
     <ClCompile Include="src\engine\editor.c" />
     <ClCompile Include="src\engine\input.c" />
@@ -178,6 +179,7 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\language\compiler.h" />
     <ClInclude Include="src\engine\camera.h" />
     <ClInclude Include="src\engine\editor.h" />
     <ClInclude Include="src\engine\input.h" />

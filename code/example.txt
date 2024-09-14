@@ -6,22 +6,39 @@
 
 
 
-# File should contain a single root function with any name (may change how this works later)
+# The file should contain one or more functions at the top level.
+void doSomething
+	(int n, int time)	# Function parameter list
+	(int i)				# Local variables (must be declared here, in the function signature; may change later)
+{
+	i = 0;
+	
+	while (i < n)
+	{
+		i = i + 1;
+		print("-->", i);
+		sleep(time);
+	}
+}
+
+# One function needs to be named "main" for the program to run.
 int main
-	()				# Function parameter list (no params in this example)
-	(int localInt)	# Local variables (must be declared here, in the function signature; may change later)
+	()
+	(int localInt)
 {
 	localInt = 0;			# Assign a value to a local variable
-
+	
 	while (localInt < 10)	# There are "while" loops, but not "for" loops
 	{
-		localInt = localInt + 1;	# Arithmetic operation
+		localInt = localInt + 1;			# Arithmetic operation
 		
-		print("Hello", localInt);	# Call an external function
+		sleep(500);							# Call an external function
+		print("Hello World!", localInt);
+		doSomething(localInt, 100);			# Call a function defined in this file
 		
-		if (localInt == 5)			# Conditional execution with "if" (no "else" yet)
+		if (localInt == 5)					# Conditional execution with "if" (no "else" yet)
 		{
-			print("Halfway Point", localInt);
+			print("Halfway Point:", localInt);
 		}
 	}
 	

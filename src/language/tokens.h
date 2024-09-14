@@ -21,12 +21,17 @@ typedef enum
 	KW_ELSE,
 	KW_WHILE,
 	KW_RETURN,
-	KW_NULL,
+	KW_MAIN,
 	KW_VOID,
+	KW_NULL,
 	KW_INT,
 	KW_FLOAT,
 	KW_BOOL,
 	KW_STRING,
+
+	// These are keywords, but they get converted directly into TOK_LIT_BOOL:
+	KW_TRUE,
+	KW_FALSE,
 
 	KEYWORD_COUNT
 } TokenKeyword;
@@ -120,3 +125,4 @@ typedef struct
 
 void TokenStream_Open(TokenStream* ts, char* filePath);
 void TokenStream_Next(TokenStream* ts);
+void TokenStream_Close(TokenStream* ts);

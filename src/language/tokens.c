@@ -53,10 +53,8 @@ void TokenStream_Open(TokenStream* ts, char* filePath)
 	else
 	{
 		// initialize struct
-		ts->buffer = malloc(CONST_BUFFERSIZE * sizeof(char));
-		ts->subbuffer = malloc(CONST_SUBBUFSIZE * sizeof(char));
-		memset(ts->buffer, 0, CONST_BUFFERSIZE * sizeof(char));
-		memset(ts->subbuffer, 0, CONST_SUBBUFSIZE * sizeof(char));
+		ts->buffer = calloc(CONST_BUFFERSIZE, sizeof(char));
+		ts->subbuffer = calloc(CONST_SUBBUFSIZE, sizeof(char));
 		ts->i = -1;
 		ts->n = 0;
 		ts->token.type = TOK_NULL;
@@ -66,6 +64,16 @@ void TokenStream_Open(TokenStream* ts, char* filePath)
 
 		// read first char to increment i to 0 and establish a value for c
 		NextChar(ts);
+	}
+}
+
+void TokenStream_Close(TokenStream* ts)
+{
+	if (ts != NULL)
+	{
+		fclose(ts->file);
+		free(ts->buffer);
+		free(ts->subbuffer);
 	}
 }
 
@@ -102,12 +110,16 @@ static void ReadWord(TokenStream* ts)
 		"else",
 		"while",
 		"return",
+		"main",
 		"void",
 		"null",
 		"int",
 		"float",
 		"bool",
-		"string"
+		"string",
+
+		"true",
+		"false",
 	};
 
 	NextChar(ts);
@@ -132,8 +144,21 @@ static void ReadWord(TokenStream* ts)
 		{
 			if (strcmp(ts->subbuffer, keywords[kw]) == 0)
 			{
-				ts->token.type = TOK_KEYWORD;
-				ts->token.value.asKeyword = kw;
+				switch (kw)
+				{
+				case KW_TRUE:
+					ts->token.type = TOK_LIT_BOOL;
+					ts->token.value.asBool = true;
+					break;
+				case KW_FALSE:
+					ts->token.type = TOK_LIT_BOOL;
+					ts->token.value.asBool = false;
+					break;
+				default:
+					ts->token.type = TOK_KEYWORD;
+					ts->token.value.asKeyword = kw;
+					break;
+				}
 			}
 		}
 	}

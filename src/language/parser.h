@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdbool.h>
+
 typedef enum
 {
 	DAT_INVALID,
@@ -8,7 +10,6 @@ typedef enum
 	DAT_FLOAT,
 	DAT_BOOL,
 	DAT_STRING,
-	DAT_FUNCTION,
 } DataType;
 
 typedef enum
@@ -38,7 +39,6 @@ typedef enum
 	EX_READ,
 	EX_OPERATION,
 	EX_CALL,
-	EX_FUNCTION,
 } ExpressionType;
 
 typedef enum
@@ -59,7 +59,6 @@ typedef union
 	double asFloat;
 	bool asBool;
 	char* asString;
-	Function* asFunction;
 } ValUnion;
 
 union ExpressionUnion;
@@ -78,14 +77,13 @@ typedef struct
 {
 	char* name;
 	DataType type;
-	ValUnion value;
-} Variable;
-
-typedef struct
-{
-	char* name;
-	DataType type;
 } Parameter;
+
+typedef enum
+{
+	EXTF_PRINT,
+	EXTF_SLEEP,
+} ExternalFunctionID;
 
 struct Function
 {
@@ -96,7 +94,10 @@ struct Function
 	int numParams;
 	int numLocals;
 	int numStatements;
+	int address;
+	ExternalFunctionID id; // for external functions only
 	DataType rtype;
+	bool isMain;
 	bool isExternal;
 };
 
@@ -138,24 +139,12 @@ typedef struct
 	Expression* right;
 } ST_Assign;
 
-struct Context;
-typedef struct Context Context;
-struct Context
-{
-	Context* parent;
-	Variable* vars;
-	int numVars;
-	EX_Value rVal;
-	bool ret;
-};
-
 union ExpressionUnion
 {
 	EX_Value asValue;
 	EX_Read asRead;
 	EX_Operation asOperation;
 	ST_Call asCall;
-	Function* asFunction;
 };
 
 struct Expression
@@ -178,4 +167,13 @@ struct Statement
 	StatementUnion content;
 };
 
-Function* Parser_ParseFile(char* filePath);
+// Root node representing a source code file.
+// Just contains functions.
+typedef struct
+{
+	Function* functions;
+	int numFunctions;
+} SyntaxTree;
+
+SyntaxTree* Parser_ParseFile(char* filePath);
+void Parser_Destroy(SyntaxTree* ast);

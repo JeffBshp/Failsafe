@@ -21,7 +21,7 @@ typedef enum
 	COMPILE_INVALIDVALUE, // literal value expression has invalid data type (somehow)
 	COMPILE_IDENTUNDEF, // tried to use an identifier that was undefined
 	COMPILE_FUNCUNDEF, // tried to call a function that was undefined
-	COMPILE_INVALIDOP, // invalid data type(s) for a given operation
+	COMPILE_INVALIDOP, // invalid data type(s) for a given operation, or the op itself was not recognized
 	COMPILE_INVALIDEXPR, // invalid expression type (somehow)
 	COMPILE_INVALIDTYPE, // tried to assign a value to a variable of an incompatible type
 	COMPILE_BRANCHTOOFAR, // too many instructions inside a loop or conditional body to skip over with a branch instruction

@@ -159,6 +159,7 @@ static bool TryReadNumber(Lexer* lex)
 		if (n == 1 || (n == 2 && lex->buffer[start + 1] == SYM_PERIOD))
 		{
 			lex->i = start;
+			lex->c = lex->buffer[lex->i];
 			return false;
 		}
 	}
@@ -314,7 +315,7 @@ void Lexer_NextToken(Lexer* lex)
 	case SYM_LBRACKET:
 	case SYM_RBRACKET:
 	case SYM_PLUS:
-	// Handled above: case SYM_MINUS:
+	case SYM_MINUS:
 	case SYM_STAR:
 	case SYM_SLASH:
 	case SYM_PERCENT:

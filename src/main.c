@@ -45,7 +45,7 @@ static void CodeDemo(void* threadData)
 		SDL_memcpy(mem.data, p->bin, p->length * sizeof(uword)); // Load program into virtual memory
 		Memory_WriteFile(mem, "./code/example.mem"); // Save the raw binary to a file
 		Processor* proc = Processor_New(mem); // Create a virtual processor
-		Processor_Reset(proc, p->mainAddress, 512); // Set the addresses of the program and the stack
+		Processor_Reset(proc, p->mainAddress, 768); // Set the addresses of the program and the stack
 		Processor_Run(proc); // Run the processor until it halts
 
 		Compiler_Destroy(p);

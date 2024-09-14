@@ -29,8 +29,10 @@ typedef enum
 	OP_LESSEQUAL,
 	OP_EQUAL,
 	OP_NOTEQUAL,
-	OP_AND,
-	OP_OR,
+	OP_LOG_AND,
+	OP_LOG_OR,
+	OP_BW_AND,
+	OP_BW_OR,
 } OperationType;
 
 typedef enum

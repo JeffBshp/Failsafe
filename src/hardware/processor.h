@@ -21,8 +21,8 @@ typedef enum
 	OPX_CALL,
 	OPX_RET,
 	OPX_SHIFT,
-	OPX_COMP,
-	OPX_RESERVED,
+	OPX_COMP, // comparison
+	OPX_BINOP, // additional binary operations
 	OPX_HALT,
 
 	// comparison codes
@@ -32,6 +32,14 @@ typedef enum
 	COMP_LE,
 	COMP_GT,
 	COMP_GE,
+
+	// binary operations
+	BINOP_SUB = 0,
+	BINOP_MULT,
+	BINOP_DIV,
+	BINOP_MOD,
+	BINOP_BW_AND,
+	BINOP_BW_OR,
 
 	// external function calls
 	EXTCALL_PRINT = 0,

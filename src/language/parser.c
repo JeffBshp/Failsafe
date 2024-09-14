@@ -334,54 +334,24 @@ bool TryReadOperator(Lexer* lex, OperationType* op)
 
 	switch (tok.value.asSymbol)
 	{
-	case SYM_PERIOD:
-		*op = OP_ACCESS;
-		break;
-	case SYM_STAR:
-		*op = OP_MULTIPLY;
-		break;
-	case SYM_SLASH:
-		*op = OP_DIVIDE;
-		break;
-	case SYM_PERCENT:
-		*op = OP_MODULO;
-		break;
-	case SYM_PLUS:
-		*op = OP_ADD;
-		break;
-	case SYM_MINUS:
-		*op = OP_SUBTRACT;
-		break;
-	// return ADD, then check data types, then change to JOIN
-	// TODO: case join:
-		//*op = OP_JOIN;
-		//break;
-	case SYM_GREATER:
-		*op = OP_GREATERTHAN;
-		break;
-	case SYM_GREATEREQ:
-		*op = OP_GREATEREQUAL;
-		break;
-	case SYM_LESS:
-		*op = OP_LESSTHAN;
-		break;
-	case SYM_LESSEQ:
-		*op = OP_LESSEQUAL;
-		break;
-	case SYM_2EQUAL:
-		*op = OP_EQUAL;
-		break;
-	case SYM_NOTEQ:
-		*op = OP_NOTEQUAL;
-		break;
-	case SYM_2AND:
-		*op = OP_AND;
-		break;
-	case SYM_2OR:
-		*op = OP_OR;
-		break;
-	default:
-		return false;
+	case SYM_PERIOD: *op = OP_ACCESS; break;
+	case SYM_STAR: *op = OP_MULTIPLY; break;
+	case SYM_SLASH: *op = OP_DIVIDE; break;
+	case SYM_PERCENT: *op = OP_MODULO; break;
+	case SYM_PLUS: *op = OP_ADD; break;
+	case SYM_MINUS: *op = OP_SUBTRACT; break;
+	// TODO: OP_JOIN for strings
+	case SYM_GREATER: *op = OP_GREATERTHAN; break;
+	case SYM_GREATEREQ: *op = OP_GREATEREQUAL; break;
+	case SYM_LESS: *op = OP_LESSTHAN; break;
+	case SYM_LESSEQ: *op = OP_LESSEQUAL; break;
+	case SYM_2EQUAL: *op = OP_EQUAL; break;
+	case SYM_NOTEQ: *op = OP_NOTEQUAL; break;
+	case SYM_2AND: *op = OP_LOG_AND; break;
+	case SYM_2OR: *op = OP_LOG_OR; break;
+	case SYM_1AND: *op = OP_BW_AND; break;
+	case SYM_1OR: *op = OP_BW_OR; break;
+	default: return false;
 	}
 
 	Lexer_NextToken(lex);

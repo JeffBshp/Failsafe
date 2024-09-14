@@ -73,6 +73,7 @@ void Processor_Run(Processor* p)
 		p->instruction = instr.bits;
 		uword next = p->programCounter + 1;
 		uword result = 0;
+
 		switch (instr.opCode)
 		{
 		case INSTR_ADD:
@@ -155,16 +156,29 @@ void Processor_Run(Processor* p)
 				case COMP_LE: Comp(r, r[instr.regB] <= r[instr.regC]); break;
 				case COMP_GT: Comp(r, r[instr.regB] > r[instr.regC]); break;
 				case COMP_GE: Comp(r, r[instr.regB] >= r[instr.regC]); break;
+				default: break;
 				}
 				break;
-			case OPX_RESERVED:
+			case OPX_BINOP:
+				switch (instr.comp)
+				{
+				case BINOP_SUB:    SetReg(r, REG_RESULT, ((word)r[REG_OPERAND_A]) - ((word)r[REG_OPERAND_B])); break;
+				case BINOP_MULT:   SetReg(r, REG_RESULT, ((word)r[REG_OPERAND_A]) * ((word)r[REG_OPERAND_B])); break;
+				case BINOP_DIV:    SetReg(r, REG_RESULT, ((word)r[REG_OPERAND_A]) / ((word)r[REG_OPERAND_B])); break;
+				case BINOP_MOD:    SetReg(r, REG_RESULT, ((word)r[REG_OPERAND_A]) % ((word)r[REG_OPERAND_B])); break;
+				case BINOP_BW_AND: SetReg(r, REG_RESULT, ((word)r[REG_OPERAND_A]) & ((word)r[REG_OPERAND_B])); break;
+				case BINOP_BW_OR:  SetReg(r, REG_RESULT, ((word)r[REG_OPERAND_A]) | ((word)r[REG_OPERAND_B])); break;
+				default: break;
+				}
 				break;
 			case OPX_HALT:
 				if (log) printf("HALT\n");
 				halt = true;
 				break;
+			default: break;
 			}
 			break;
+		default: break;
 		}
 
 		p->programCounter = next;

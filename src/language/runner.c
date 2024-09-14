@@ -6,40 +6,15 @@
 #include "runner.h"
 #include "parser.h"
 
+#pragma region Operations
+
 static inline EX_Value InvalidValue()
 {
 	return (EX_Value) { .type = DAT_INVALID, .value = NULL };
 }
 
-static Variable* FindVar(RunContext* c, char* name)
-{
-	for (int i = 0; i < c->numVars; i++)
-	{
-		Variable* var = c->vars + i;
-
-		if (0 == strcmp(var->name, name))
-			return var;
-	}
-
-	return NULL;
-}
-
-static EX_Value ReadVar(RunContext* c, EX_Read r)
-{
-	Variable* var = FindVar(c, r);
-	if (var == NULL) return InvalidValue();
-
-	return (EX_Value)
-	{
-		.type = var->type,
-		.value = var->value // shallow copy
-	};
-}
-
 static EX_Value Evaluate(RunContext* c, Expression* e);
 static bool ExecuteStatement(RunContext* c, Statement* s);
-
-#pragma region Operations
 
 static EX_Value OpNegate(RunContext* c, EX_Operation op)
 {
@@ -137,6 +112,42 @@ static bool OpDiv(DataType type, ValUnion a, ValUnion b, ValUnion* result)
 	return true;
 }
 
+static bool OpMod(DataType type, ValUnion a, ValUnion b, ValUnion* result)
+{
+	if (type == DAT_INT)
+	{
+		(*result).asInt = a.asInt % b.asInt;
+		return true;
+	}
+
+	(*result).asString = NULL;
+	return false;
+}
+
+static bool OpBwAnd(DataType type, ValUnion a, ValUnion b, ValUnion* result)
+{
+	if (type == DAT_INT)
+	{
+		(*result).asInt = a.asInt & b.asInt;
+		return true;
+	}
+
+	(*result).asString = NULL;
+	return false;
+}
+
+static bool OpBwOr(DataType type, ValUnion a, ValUnion b, ValUnion* result)
+{
+	if (type == DAT_INT)
+	{
+		(*result).asInt = a.asInt | b.asInt;
+		return true;
+	}
+
+	(*result).asString = NULL;
+	return false;
+}
+
 #pragma endregion
 
 #pragma region Boolean
@@ -168,12 +179,36 @@ static bool OpGreaterThan(DataType type, ValUnion a, ValUnion b, bool* result)
 	return true;
 }
 
+static bool OpGreaterEqual(DataType type, ValUnion a, ValUnion b, bool* result)
+{
+	switch (type)
+	{
+	case DAT_INT: *result = a.asInt >= b.asInt; break;
+	case DAT_FLOAT: *result = a.asFloat >= b.asFloat; break;
+	default: *result = false; return false;
+	}
+
+	return true;
+}
+
 static bool OpLessThan(DataType type, ValUnion a, ValUnion b, bool* result)
 {
 	switch (type)
 	{
 	case DAT_INT: *result = a.asInt < b.asInt; break;
 	case DAT_FLOAT: *result = a.asFloat < b.asFloat; break;
+	default: *result = false; return false;
+	}
+
+	return true;
+}
+
+static bool OpLessEqual(DataType type, ValUnion a, ValUnion b, bool* result)
+{
+	switch (type)
+	{
+	case DAT_INT: *result = a.asInt <= b.asInt; break;
+	case DAT_FLOAT: *result = a.asFloat <= b.asFloat; break;
 	default: *result = false; return false;
 	}
 
@@ -201,32 +236,91 @@ static bool OpNotEq(DataType type, ValUnion a, ValUnion b, bool* result)
 	case DAT_INT: *result = a.asInt == b.asInt; break;
 	case DAT_FLOAT: *result = a.asFloat == b.asFloat; break;
 	case DAT_BOOL: *result = a.asBool == b.asBool; break;
-		// TODO: strcmp
+	// TODO: strcmp
 	default: *result = false; return false;
 	}
 
 	return true;
 }
 
+static bool OpLogAnd(DataType type, ValUnion a, ValUnion b, bool* result)
+{
+	if (type == DAT_BOOL)
+	{
+		*result = a.asBool && b.asBool;
+		return true;
+	}
+
+	*result = false;
+	return false;
+}
+
+static bool OpLogOr(DataType type, ValUnion a, ValUnion b, bool* result)
+{
+	if (type == DAT_BOOL)
+	{
+		*result = a.asBool || b.asBool;
+		return true;
+	}
+
+	*result = false;
+	return false;
+}
+
 #pragma endregion
 
 #pragma endregion
+
+#pragma region Expressions
+
+static Variable* FindVar(RunContext* c, char* name)
+{
+	for (int i = 0; i < c->numVars; i++)
+	{
+		Variable* var = c->vars + i;
+
+		if (0 == strcmp(var->name, name))
+			return var;
+	}
+
+	return NULL;
+}
+
+static EX_Value ReadVar(RunContext* c, EX_Read r)
+{
+	Variable* var = FindVar(c, r);
+	if (var == NULL) return InvalidValue();
+
+	return (EX_Value)
+	{
+		.type = var->type,
+			.value = var->value // shallow copy
+	};
+}
 
 static EX_Value EvaluateOperation(RunContext* c, EX_Operation op)
 {
 	switch (op.type)
 	{
+	case OP_ACCESS: break; // TODO?
 	case OP_NEGATE: return OpNegate(c, op);
 	case OP_NOT: return OpNot(c, op);
 	case OP_MULTIPLY: return OpArithmetic(c, op, &OpMul);
 	case OP_DIVIDE: return OpArithmetic(c, op, &OpDiv);
+	case OP_MODULO: return OpArithmetic(c, op, &OpMod);
 	case OP_ADD: return OpArithmetic(c, op, &OpAdd);
 	case OP_SUBTRACT: return OpArithmetic(c, op, &OpSub);
+	case OP_JOIN: break; // TODO
 	case OP_GREATERTHAN: return OpBoolean(c, op, &OpGreaterThan);
+	case OP_GREATEREQUAL: return OpBoolean(c, op, &OpGreaterEqual);
 	case OP_LESSTHAN: return OpBoolean(c, op, &OpLessThan);
+	case OP_LESSEQUAL: return OpBoolean(c, op, &OpLessEqual);
 	case OP_EQUAL: return OpBoolean(c, op, &OpEqual);
 	case OP_NOTEQUAL: return OpBoolean(c, op, &OpNotEq);
-	// TODO: implement the rest
+	case OP_LOG_AND: return OpBoolean(c, op, &OpLogAnd);
+	case OP_LOG_OR: return OpBoolean(c, op, &OpLogOr);
+	case OP_BW_AND: return OpArithmetic(c, op, &OpBwAnd);
+	case OP_BW_OR: return OpArithmetic(c, op, &OpBwOr);
 	}
 
 	return InvalidValue();
@@ -333,6 +427,10 @@ static EX_Value Evaluate(RunContext* c, Expression* e)
 	}
 }
 
+#pragma endregion
+
+#pragma region Statements
+
 static bool Assign(RunContext* c, ST_Assign a)
 {
 	Variable* var = FindVar(c, a.left);
@@ -405,6 +503,8 @@ static bool ExecuteStatement(RunContext* c, Statement* s)
 		return Return(c, s->content.asReturn);
 	}
 }
+
+#pragma endregion
 
 void Runner_Execute(SyntaxTree* ast)
 {

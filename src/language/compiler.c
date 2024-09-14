@@ -112,6 +112,17 @@ static inline bool InstrComp(CompileContext* c, int left, int comp, int right)
 	return AddInstruction(c, instr);
 }
 
+static inline bool InstrBinop(CompileContext* c, int op)
+{
+	Instruction instr = { .bits = 0 };
+	instr.opCode = INSTR_EXT;
+	instr.regA = OPX_BINOP;
+	instr.regB = REG_OPERAND_A;
+	instr.comp = op;
+	instr.regC = REG_OPERAND_B;
+	return AddInstruction(c, instr);
+}
+
 // Loads a full 16-bit word in two instructions
 static bool LoadFullWord(CompileContext* c, uword regIndex, uword value)
 {
@@ -287,43 +298,13 @@ static bool CompileOpNot(CompileContext* c, Expression* operand, DataType* type)
 	return false;
 }
 
-static bool CompileOpAdd(CompileContext* c, DataType aType, DataType bType, DataType* resultType)
-{
-	if (aType == bType) // TODO: mixed types
-	{
-		if (aType == DAT_INT)
-		{
-			*resultType = DAT_INT;
-			return Instr3R(c, INSTR_ADD, REG_RESULT, REG_OPERAND_A, REG_OPERAND_B);
-		}
-		else if (aType == DAT_FLOAT)
-		{
-			c->status = COMPILE_NOTIMPLEMENTED;
-		}
-		else if (aType == DAT_STRING)
-		{
-			c->status = COMPILE_NOTIMPLEMENTED;
-		}
-		else
-		{
-			c->status = COMPILE_INVALIDOP;
-		}
-	}
-	else
-	{
-		c->status = COMPILE_INVALIDOP;
-	}
-
-	return false;
-}
-
-static bool CompileOpComparison(CompileContext* c, DataType aType, DataType bType, int comp, DataType* resultType)
+static bool CompileComparisonOp(CompileContext* c, DataType aType, DataType bType, int comp, DataType* resultType)
 {
 	*resultType = DAT_BOOL;
 
 	if (aType == bType) // TODO: mixed types
 	{
-		if (aType == DAT_INT || aType == DAT_BOOL)
+		if (aType == DAT_INT || (aType == DAT_BOOL && (comp == COMP_EQ || comp == COMP_NE)))
 		{
 			return InstrComp(c, REG_OPERAND_A, comp, REG_OPERAND_B);
 		}
@@ -351,6 +332,81 @@ static bool CompileOpComparison(CompileContext* c, DataType aType, DataType bTyp
 	return false;
 }
 
+static bool CompileArithmeticOp(CompileContext* c, DataType aType, DataType bType, OperationType op, DataType* resultType)
+{
+	if (aType == bType) // TODO: mixed types
+	{
+		if (aType == DAT_INT)
+		{
+			*resultType = DAT_INT;
+
+			switch (op)
+			{
+			case OP_MULTIPLY: return InstrBinop(c, BINOP_MULT);
+			case OP_DIVIDE: return InstrBinop(c, BINOP_DIV);
+			case OP_MODULO: return InstrBinop(c, BINOP_MOD);
+			case OP_ADD: return Instr3R(c, INSTR_ADD, REG_RESULT, REG_OPERAND_A, REG_OPERAND_B);
+			case OP_SUBTRACT: return InstrBinop(c, BINOP_SUB);
+			default: c->status = COMPILE_INVALIDOP; break;
+			}
+		}
+		else if (aType == DAT_FLOAT)
+		{
+			c->status = COMPILE_NOTIMPLEMENTED;
+		}
+		else
+		{
+			c->status = COMPILE_INVALIDOP;
+		}
+	}
+	else
+	{
+		c->status = COMPILE_INVALIDOP;
+	}
+
+	return c->status == COMPILE_SUCCESS;
+}
+
+static bool CompileBitwiseOp(CompileContext* c, DataType aType, DataType bType, OperationType op, DataType* resultType)
+{
+	if (aType == bType)
+	{
+		if (aType == DAT_INT)
+		{
+			*resultType = DAT_INT;
+
+			switch (op)
+			{
+			case OP_BW_AND: return InstrBinop(c, BINOP_BW_AND);
+			case OP_BW_OR: return InstrBinop(c, BINOP_BW_OR);
+			default: c->status = COMPILE_INVALIDOP; break;
+			}
+		}
+		else if (aType == DAT_BOOL)
+		{
+			*resultType = DAT_BOOL;
+
+			switch (op)
+			{
+			// These are just bitwise ops with boolean type checking
+			case OP_LOG_AND: return InstrBinop(c, BINOP_BW_AND);
+			case OP_LOG_OR: return InstrBinop(c, BINOP_BW_OR);
+			default: c->status = COMPILE_INVALIDOP; break;
+			}
+		}
+		else
+		{
+			c->status = COMPILE_INVALIDOP;
+		}
+	}
+	else
+	{
+		c->status = COMPILE_INVALIDOP;
+	}
+
+	return c->status == COMPILE_SUCCESS;
+}
+
 static bool CompileOperationExpression(CompileContext* c, EX_Operation op, DataType* type)
 {
 	if (op.isBinary)
@@ -375,10 +431,37 @@ static bool CompileOperationExpression(CompileContext* c, EX_Operation op, DataT
 			// do the binary op
 			switch (op.type)
 			{
-			case OP_ADD: return CompileOpAdd(c, aType, bType, type);
-			case OP_LESSTHAN: return CompileOpComparison(c, aType, bType, COMP_LT, type);
-			case OP_EQUAL: return CompileOpComparison(c, aType, bType, COMP_EQ, type);
-			default: c->status = COMPILE_NOTIMPLEMENTED; return false; // TODO
+			case OP_ACCESS: // TODO?
+				c->status = COMPILE_NOTIMPLEMENTED;
+				return false;
+
+			case OP_MULTIPLY: // fall through
+			case OP_DIVIDE:
+			case OP_MODULO:
+			case OP_ADD:
+			case OP_SUBTRACT:
+				return CompileArithmeticOp(c, aType, bType, op.type, type);
+
+			case OP_JOIN: // TODO
+				c->status = COMPILE_NOTIMPLEMENTED;
+				return false;
+
+			case OP_GREATERTHAN: return CompileComparisonOp(c, aType, bType, COMP_GT, type);
+			case OP_GREATEREQUAL: return CompileComparisonOp(c, aType, bType, COMP_GE, type);
+			case OP_LESSTHAN: return CompileComparisonOp(c, aType, bType, COMP_LT, type);
+			case OP_LESSEQUAL: return CompileComparisonOp(c, aType, bType, COMP_LE, type);
+			case OP_EQUAL: return CompileComparisonOp(c, aType, bType, COMP_EQ, type);
+			case OP_NOTEQUAL: return CompileComparisonOp(c, aType, bType, COMP_NE, type);
+
+			case OP_LOG_AND: // fall through
+			case OP_LOG_OR:
+			case OP_BW_AND:
+			case OP_BW_OR:
+				return CompileBitwiseOp(c, aType, bType, op.type, type);
+
+			default:
+				c->status = COMPILE_INVALIDOP;
+				return false;
 			}
 		}
 	}

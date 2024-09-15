@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include "SDL.h"
+#include "../language/float16.h"
 #include "processor.h"
 #include "memory.h"
 
@@ -42,9 +43,91 @@ static inline void Shift(uword* r, uword i, word n)
 	SetReg(r, i, result);
 }
 
-static inline void Comp(uword* r, bool result)
+static inline void Comp(uword* r, Instruction instr)
 {
+	word a = r[instr.regB];
+	word b = r[instr.regC];
+	bool result;
+
+	switch (instr.comp)
+	{
+	case COMP_EQ: result = a == b; break;
+	case COMP_NE: result = a != b; break;
+	case COMP_LT: result = a < b; break;
+	case COMP_LE: result = a <= b; break;
+	case COMP_GT: result = a > b; break;
+	case COMP_GE: result = a >= b; break;
+	default: return;
+	}
+
 	r[REG_RESULT] = result ? 1 : 0;
+}
+
+static inline void FloatMath(uword* r, uword op)
+{
+	float16 a = { .bits = (word)r[REG_OPERAND_A] };
+	float16 b = { .bits = (word)r[REG_OPERAND_B] };
+	float16 result;
+
+	switch (op)
+	{
+	case FPMATH_ADD: result = Float16_Add(a, b); break;
+	case FPMATH_SUB: result = Float16_Sub(a, b); break;
+	case FPMATH_MUL: result = Float16_Mul(a, b); break;
+	case FPMATH_DIV: result = Float16_Div(a, b); break;
+	default: return;
+	}
+
+	r[REG_RESULT] = result.bits;
+}
+
+static inline void FloatComp(uword* r, uword comp)
+{
+	float16 a = { .bits = (word)r[REG_OPERAND_A] };
+	float16 b = { .bits = (word)r[REG_OPERAND_B] };
+	bool result;
+
+	switch (comp)
+	{
+	case COMP_EQ: result = Float16_Equal(a, b); break;
+	case COMP_NE: result = !Float16_Equal(a, b); break;
+	case COMP_LT: result = Float16_Less(a, b); break;
+	case COMP_LE: result = Float16_LessEqual(a, b); break;
+	case COMP_GT: result = Float16_Greater(a, b); break;
+	case COMP_GE: result = Float16_GreaterEqual(a, b); break;
+	default: return;
+	}
+
+	r[REG_RESULT] = result ? 1 : 0;
+}
+
+static inline void BinaryOp(uword* r, Instruction instr)
+{
+	word a = r[instr.regB];
+	word b = r[instr.regC];
+	word result;
+
+	switch (instr.comp)
+	{
+	case BINOP_SUB:    result = a - b; break;
+	case BINOP_MULT:   result = a * b; break;
+	case BINOP_DIV:    result = a / b; break;
+	case BINOP_MOD:    result = a % b; break;
+	case BINOP_BW_AND: result = a & b; break;
+	case BINOP_BW_OR:  result = a | b; break;
+	case BINOP_BW_XOR: result = a ^ b; break;
+	case BINOP_FLOAT:
+		switch (instr.regB)
+		{
+		case FPOP_MATH: FloatMath(r, instr.regC); break;
+		case FPOP_COMP: FloatComp(r, instr.regC); break;
+		default: break;
+		}
+		return;
+	default: return;
+	}
+
+	r[REG_RESULT] = result;
 }
 
 static inline void Print(uword* r, uword* mem, Instruction instr)
@@ -148,28 +231,10 @@ void Processor_Run(Processor* p)
 				break;
 			case OPX_COMP:
 				if (log) printf("COMP (%d) %d (%d)\n", r[instr.regB], instr.comp, r[instr.regC]);
-				switch (instr.comp)
-				{
-				case COMP_EQ: Comp(r, r[instr.regB] == r[instr.regC]); break;
-				case COMP_NE: Comp(r, r[instr.regB] != r[instr.regC]); break;
-				case COMP_LT: Comp(r, r[instr.regB] < r[instr.regC]); break;
-				case COMP_LE: Comp(r, r[instr.regB] <= r[instr.regC]); break;
-				case COMP_GT: Comp(r, r[instr.regB] > r[instr.regC]); break;
-				case COMP_GE: Comp(r, r[instr.regB] >= r[instr.regC]); break;
-				default: break;
-				}
+				Comp(r, instr);
 				break;
 			case OPX_BINOP:
-				switch (instr.comp)
-				{
-				case BINOP_SUB:    SetReg(r, REG_RESULT, ((word)r[REG_OPERAND_A]) - ((word)r[REG_OPERAND_B])); break;
-				case BINOP_MULT:   SetReg(r, REG_RESULT, ((word)r[REG_OPERAND_A]) * ((word)r[REG_OPERAND_B])); break;
-				case BINOP_DIV:    SetReg(r, REG_RESULT, ((word)r[REG_OPERAND_A]) / ((word)r[REG_OPERAND_B])); break;
-				case BINOP_MOD:    SetReg(r, REG_RESULT, ((word)r[REG_OPERAND_A]) % ((word)r[REG_OPERAND_B])); break;
-				case BINOP_BW_AND: SetReg(r, REG_RESULT, ((word)r[REG_OPERAND_A]) & ((word)r[REG_OPERAND_B])); break;
-				case BINOP_BW_OR:  SetReg(r, REG_RESULT, ((word)r[REG_OPERAND_A]) | ((word)r[REG_OPERAND_B])); break;
-				default: break;
-				}
+				BinaryOp(r, instr);
 				break;
 			case OPX_HALT:
 				if (log) printf("HALT\n");

@@ -21,11 +21,11 @@ typedef enum
 	OPX_CALL,
 	OPX_RET,
 	OPX_SHIFT,
-	OPX_COMP, // comparison
-	OPX_BINOP, // additional binary operations
+	OPX_COMP, // compare instr.regB and instr.regC, save boolean to REG_RESULT
+	OPX_BINOP, // additional binary operations on B and C
 	OPX_HALT,
 
-	// comparison codes
+	// comparison codes given by instr.comp (except float comparisons)
 	COMP_EQ = 0,
 	COMP_NE,
 	COMP_LT,
@@ -33,13 +33,27 @@ typedef enum
 	COMP_GT,
 	COMP_GE,
 
-	// binary operations
+	// binary operations given by instr.comp
 	BINOP_SUB = 0,
 	BINOP_MULT,
 	BINOP_DIV,
 	BINOP_MOD,
 	BINOP_BW_AND,
 	BINOP_BW_OR,
+	BINOP_BW_XOR,
+	BINOP_FLOAT, // floating point op
+
+	// floating point operations:
+	// - this opcode is given by instr.regB
+	// - all operate on REG_OPERAND_(A/B) and save to REG_RESULT
+	FPOP_MATH = 0, // FPMATH opcode given by instr.regC
+	FPOP_COMP, // COMP opcode given by instr.regC
+
+	// floating point math
+	FPMATH_ADD = 0,
+	FPMATH_SUB,
+	FPMATH_MUL,
+	FPMATH_DIV,
 
 	// external function calls
 	EXTCALL_PRINT = 0,

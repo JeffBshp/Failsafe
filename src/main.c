@@ -24,6 +24,7 @@
 #include "language/parser.h"
 #include "language/runner.h"
 #include "language/compiler.h"
+#include "language/float16.h"
 
 #include "hardware/memory.h"
 #include "hardware/processor.h"

@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include "compiler.h"
+#include "float16.h"
 #include "parser.h"
 #include "../hardware/processor.h"
 
@@ -123,6 +124,21 @@ static inline bool InstrBinop(CompileContext* c, int op)
 	return AddInstruction(c, instr);
 }
 
+// Binary operation on 16-bit floating point numbers.
+// Operates on REG_OPERAND_A and REG_OPERAND_B, and saves to REG_RESULT.
+// opType is FPOP_MATH or FPOP_COMP
+// op is FPMATH_XX or COMP_XX
+static inline bool InstrFloat(CompileContext* c, int opType, int op)
+{
+	Instruction instr = { .bits = 0 };
+	instr.opCode = INSTR_EXT;
+	instr.regA = OPX_BINOP;
+	instr.regB = opType;
+	instr.comp = BINOP_FLOAT;
+	instr.regC = op;
+	return AddInstruction(c, instr);
+}
+
 // Loads a full 16-bit word in two instructions
 static bool LoadFullWord(CompileContext* c, uword regIndex, uword value)
 {
@@ -150,6 +166,12 @@ static bool CompileValueInt(CompileContext* c, int v)
 	}
 
 	return LoadFullWord(c, REG_RESULT, v);
+}
+
+static bool CompileValueFloat(CompileContext* c, double v)
+{
+	float16 f = Float16_FromDouble(v);
+	return LoadFullWord(c, REG_RESULT, f.bits);
 }
 
 static bool CompileValueBool(CompileContext* c, bool v)
@@ -215,7 +237,7 @@ static bool CompileValueExpression(CompileContext* c, EX_Value v, DataType* type
 	switch (v.type)
 	{
 	case DAT_INT: return CompileValueInt(c, v.value.asInt);
-	case DAT_FLOAT: c->status = COMPILE_NOTIMPLEMENTED; return false; // TODO
+	case DAT_FLOAT: return CompileValueFloat(c, v.value.asFloat);
 	case DAT_BOOL: return CompileValueBool(c, v.value.asBool);
 	case DAT_STRING: return CompileValueString(c, v.value.asString);
 	// TODO: make sure void can't actually be assigned to anything
@@ -264,7 +286,9 @@ static bool CompileOpNegate(CompileContext* c, Expression* operand, DataType* ty
 		}
 		else if (*type == DAT_FLOAT)
 		{
-			c->status = COMPILE_NOTIMPLEMENTED; // TODO
+			Instr3R(c, INSTR_ADD, REG_OPERAND_A, REG_RESULT, REG_ZERO); // move the float value to operand A
+			LoadFullWord(c, REG_OPERAND_B, 0x8000); // operand B has only the sign bit set
+			return InstrBinop(c, BINOP_BW_XOR); // REG_RESULT now contains the float value with the sign bit inverted
 		}
 		else
 		{
@@ -310,14 +334,7 @@ static bool CompileComparisonOp(CompileContext* c, DataType aType, DataType bTyp
 		}
 		else if (aType == DAT_FLOAT)
 		{
-			c->status = COMPILE_NOTIMPLEMENTED;
-		}
-		else if (aType == DAT_STRING)
-		{
-			if (comp == COMP_EQ || comp == COMP_NE)
-				c->status = COMPILE_NOTIMPLEMENTED;
-			else
-				c->status = COMPILE_INVALIDOP;
+			return InstrFloat(c, FPOP_COMP, comp);
 		}
 		else
 		{
@@ -352,7 +369,16 @@ static bool CompileArithmeticOp(CompileContext* c, DataType aType, DataType bTyp
 		}
 		else if (aType == DAT_FLOAT)
 		{
-			c->status = COMPILE_NOTIMPLEMENTED;
+			*resultType = DAT_FLOAT;
+
+			switch (op)
+			{
+			case OP_ADD: return InstrFloat(c, FPOP_MATH, FPMATH_ADD);
+			case OP_SUBTRACT: return InstrFloat(c, FPOP_MATH, FPMATH_SUB);
+			case OP_MULTIPLY: return InstrFloat(c, FPOP_MATH, FPMATH_MUL);
+			case OP_DIVIDE: return InstrFloat(c, FPOP_MATH, FPMATH_DIV);
+			default: c->status = COMPILE_INVALIDOP; break;
+			}
 		}
 		else
 		{

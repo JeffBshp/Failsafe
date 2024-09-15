@@ -170,6 +170,7 @@
     <ClCompile Include="src\engine\world.c" />
     <ClCompile Include="src\hardware\memory.c" />
     <ClCompile Include="src\hardware\processor.c" />
+    <ClCompile Include="src\language\float16.c" />
     <ClCompile Include="src\language\parser.c" />
     <ClCompile Include="src\language\runner.c" />
     <ClCompile Include="src\language\lexer.c" />
@@ -193,6 +194,7 @@
     <ClInclude Include="src\engine\world.h" />
     <ClInclude Include="src\hardware\memory.h" />
     <ClInclude Include="src\hardware\processor.h" />
+    <ClInclude Include="src\language\float16.h" />
     <ClInclude Include="src\language\parser.h" />
     <ClInclude Include="src\language\runner.h" />
     <ClInclude Include="src\language\lexer.h" />

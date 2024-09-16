@@ -394,6 +394,8 @@ static EX_Value CallFunction(RunContext* c, ST_Call call)
 			SDL_Delay(arg);
 		}
 		break;
+	case EXTF_MOVE:
+		break;
 	default:
 		for (int i = 0; i < function->numStatements; i++)
 		{

@@ -39,6 +39,9 @@ typedef struct
 	int lastTicks;
 	int lastSecondTicks;
 	bool buffer;
+	bool runProgram;
+	bool* processorHalt;
+	char* programFilePath;
 	TextBox* textBox;
 	TextBox* loadingTextBox;
 	Progress* progress;

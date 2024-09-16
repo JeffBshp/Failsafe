@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "device.h"
 #include "memory.h"
 
 typedef enum
@@ -58,6 +59,7 @@ typedef enum
 	// external function calls
 	EXTCALL_PRINT = 0,
 	EXTCALL_SLEEP,
+	EXTCALL_MOVE,
 } OpCode;
 
 enum
@@ -107,8 +109,10 @@ typedef struct
 	uword instruction;
 	uword registers[8];
 	Memory memory;
+	Device device;
+	bool halt;
 } Processor;
 
-Processor* Processor_New(Memory memory);
+Processor* Processor_New(Device device, Memory memory);
 void Processor_Reset(Processor* p, uword startAddress, uword stackPointer);
 void Processor_Run(Processor* p);

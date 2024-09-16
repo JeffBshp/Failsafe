@@ -290,7 +290,7 @@ void Input_Update(InputState* key, GameState* gs)
 
 static void SelectSphere(GameState* gs, int next)
 {
-	Shape* shape = gs->shapes + 2;
+	Shape* shape = gs->shapes + 0;
 	int i = gs->currentModel - shape->models;
 	int n = shape->numModels;
 	shape->instanceData[i * 17] = TEX_WHITE;
@@ -340,6 +340,7 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 		break;
 	case SDLK_g:
 		key->g = true;
+		key->gravity = !key->gravity;
 		break;
 	case SDLK_f:
 		key->f = true;
@@ -407,10 +408,12 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 		break;
 	case SDLK_v:
 		SelectSphere(gs, 0);
-		gs->currentModel = Shape_AddModel(gs->shapes + 2);
+		gs->currentModel = Shape_AddModel(gs->shapes + 0);
 		break;
+
 	case SDLK_RETURN:
-		key->gravity = !key->gravity;
+		*(gs->processorHalt) = true;
+		gs->runProgram = true;
 		break;
 	case SDLK_SPACE:
 		key->space = true;

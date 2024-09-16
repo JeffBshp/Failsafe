@@ -19,6 +19,7 @@
 #include "engine/shape.h"
 #include "engine/mesher.h"
 #include "engine/noise.h"
+#include "engine/editor.h"
 #include "engine/utility.h"
 
 #include "language/parser.h"
@@ -26,53 +27,69 @@
 #include "language/compiler.h"
 #include "language/float16.h"
 
+#include "hardware/device.h"
 #include "hardware/memory.h"
 #include "hardware/processor.h"
 
 static void CodeDemo(void* threadData)
 {
-	// Parse source file of the example program
-	SyntaxTree* ast = Parser_ParseFile("./code/example.txt");
+	GameState* gs = threadData;
+	SDL_Delay(3000);
 
-	// The runner interprets and executes the AST in real time, starting with the "main" function.
-	Runner_Execute(ast);
+	Memory mem = Memory_New(2048); // Create a virtual memory unit
+	vec3* vel = gs->shapes[0].models[0].vel; // Get a reference to the velocity of one of the objects
+	Device device = { .vel = vel };
+	Processor* proc = Processor_New(device, mem); // Create a virtual processor
+	gs->processorHalt = &(proc->halt); // this is so hacky
 
-	// Alternatively, the program can be fully compiled and run on a virtual processor.
-	Program* p = Compiler_GenerateCode(ast);
-
-	if (p->status == COMPILE_SUCCESS)
+	while (true)
 	{
-		Memory mem = Memory_New(1024); // Create a virtual memory unit
-		SDL_memcpy(mem.data, p->bin, p->length * sizeof(uword)); // Load program into virtual memory
-		Memory_WriteFile(mem, "./code/example.mem"); // Save the raw binary to a file
-		Processor* proc = Processor_New(mem); // Create a virtual processor
-		Processor_Reset(proc, p->mainAddress, 768); // Set the addresses of the program and the stack
-		Processor_Run(proc); // Run the processor until it halts
+		SDL_Delay(500);
 
-		Compiler_Destroy(p);
-		free(proc);
-		Memory_Destroy(mem);
+		if (gs->runProgram)
+		{
+			gs->runProgram = false;
+
+			// Save the source code
+			Editor_SaveToFile(gs->textBox, gs->programFilePath);
+			// Parse and compile the virtual program
+			SyntaxTree* ast = Parser_ParseFile(gs->programFilePath);
+			Program* p = Compiler_GenerateCode(ast);
+
+			if (p->status == COMPILE_SUCCESS)
+			{
+				SDL_memcpy(mem.data, p->bin, p->length * sizeof(uword)); // Load program into virtual memory
+				Memory_WriteFile(mem, "./code/example.mem"); // Save the raw binary to a file
+
+				Processor_Reset(proc, p->mainAddress, 1024); // Set the addresses of the program and the stack
+				Processor_Run(proc); // Run the processor until it halts
+			}
+			else
+			{
+				printf("Compile Error: %d\n", p->status);
+			}
+
+			Compiler_Destroy(p);
+			Parser_Destroy(ast);
+		}
 	}
-	else
-	{
-		printf("Compile Error: %d\n", p->status);
-	}
 
-	Parser_Destroy(ast);
-
-	printf("\n\n\n");
+	free(proc);
+	Memory_Destroy(mem);
 }
 
 int main(int argc, char* argv[])
 {
-	SDL_DetachThread(SDL_CreateThread(&CodeDemo, "Code Demo Thread", NULL));
 
 	Camera cam;
 	NoiseMaker nm = { .initialized = false };
 	Progress prog = { .percent1 = 0, .percent2 = 0, .done = false };
 	World w = { .noiseMaker = &nm, .progress = &prog };
 	GameState gs = { .world = &w, .cam = &cam, .progress = &prog };
+	gs.programFilePath = "./code/example.temp";
 	InputState key = { .gravity = false, .running = true };
+
+	SDL_DetachThread(SDL_CreateThread(&CodeDemo, "Code Demo Thread", &gs));
 
 	if (Render_Init(&gs))
 	{

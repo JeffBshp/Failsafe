@@ -818,7 +818,7 @@ static void ResolveFunctionReference(CompileContext* c, FunctionReference ref)
 	immed = f.address & 0x003F; // lower 6 bits
 	instr.opCode = INSTR_ADDI;
 	instr.regA = REG_RESULT;
-	instr.regB = REG_ZERO;
+	instr.regB = REG_RESULT;
 	instr.immed7 = immed;
 	c->instructions[ref.instructionAddress++] = instr;
 

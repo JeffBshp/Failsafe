@@ -4,6 +4,7 @@
 #include "SDL.h"
 #include "../language/float16.h"
 #include "processor.h"
+#include "device.h"
 #include "memory.h"
 
 // Based on the RiSC-16 Instruction Set Architecture.
@@ -16,15 +17,17 @@
 // Handle libraries and multiple processes, possibly with an operating system.
 // Write an assembler and disassembler.
 
-Processor* Processor_New(Memory memory)
+Processor* Processor_New(Device device, Memory memory)
 {
 	Processor* p = calloc(1, sizeof(Processor));
+	p->device = device;
 	p->memory = memory;
 	return p;
 }
 
 void Processor_Reset(Processor* p, uword startAddress, uword stackPointer)
 {
+	p->halt = true;
 	p->programCounter = startAddress;
 	p->startAddress = 0;
 	p->registers[REG_STACK_PTR] = stackPointer;
@@ -139,17 +142,35 @@ static inline void Print(uword* r, uword* mem, Instruction instr)
 	printf(">>> %s %d\n", arg1, arg2);
 }
 
+static inline void MoveObject(Processor* proc, Instruction instr)
+{
+	uword fp = proc->registers[REG_FRAME_PTR];
+	word arg = proc->memory.data[fp];
+	float* vel = proc->device.vel;
+	const float dv = 0.5f;
+	glm_vec3_zero(vel);
+
+	switch (arg)
+	{
+	case 0: vel[0] += dv; break;
+	case 1: vel[0] -= dv; break;
+	case 2: vel[1] += dv; break;
+	case 3: vel[1] -= dv; break;
+	case 4: vel[2] += dv; break;
+	case 5: vel[2] -= dv; break;
+	}
+}
+
 #pragma endregion
 
 void Processor_Run(Processor* p)
 {
 	const bool log = false;
-
+	p->halt = false;
 	uword* r = &(p->registers);
 	uword* mem = p->memory.data;
-	bool halt = false;
 
-	while (!halt && p->programCounter < p->memory.n)
+	while (!p->halt && p->programCounter < p->memory.n)
 	{
 		Instruction instr;
 		instr.bits = mem[p->programCounter];
@@ -212,6 +233,11 @@ void Processor_Run(Processor* p)
 					SDL_Delay(mem[r[REG_FRAME_PTR]]);
 					r[REG_STACK_PTR] = r[REG_FRAME_PTR];
 					break;
+				case EXTCALL_MOVE:
+					if (log) printf("CALL move(%d)\n", mem[r[REG_FRAME_PTR]]);
+					MoveObject(p, instr);
+					r[REG_STACK_PTR] = r[REG_FRAME_PTR];
+					break;
 				default:
 					if (log) printf("CALL %d (%d)\n", r[instr.regB], instr.immed7);
 					r[REG_STACK_PTR] += instr.immed7;
@@ -238,7 +264,7 @@ void Processor_Run(Processor* p)
 				break;
 			case OPX_HALT:
 				if (log) printf("HALT\n");
-				halt = true;
+				p->halt = true;
 				break;
 			default: break;
 			}

@@ -1,46 +1,36 @@
-# This is an example program that can run inside the game.
-# Its syntax is similar to C, but it is interpreted, not compiled (for now anyway).
-# The idea is that the player can write programs that interact with the game world.
-# For example, creating scripts for robots that move around, harvest materials, manufacture objects, and build structures.
-# For now, the only thing this virtual program can do is call a function that prints to the console.
+# CONTROLS:
+# Move: WASD/Space/LShift		Look: Mouse
+# Move Object: IJKLUO			Cycle Objects: Z/X
+# Create Object: V				Stop Object: CTRL
+# Toggle Gravity: G				Edit Text: ALT (toggle)
+# Run Program: Enter			Quit: ESC
 
+# This is a program that runs inside the game. Eventually you'll
+# be able to control robots that move, collect, and build things.
+# For now, all this virtual program does is move a ball around.
 
-
-# The file should contain one or more functions at the top level.
-void doSomething
-	(int n, int time)	# Function parameter list
-	(int i)				# Local variables (must be declared here, in the function signature; may change later)
+# This function moves a ball in a square, with some delays.
+void moveTheBall(int time)()
 {
-	i = 0;
-	
-	while (i < n)
-	{
-		i = i + 1;
-		print("-->", i);
-		sleep(time);
-	}
+	move(0);		# 0 = forward
+	sleep(time);
+	move(4);		# 4 = right
+	sleep(time);
+	move(1);		# 1 = backward
+	sleep(time);
+	move(5);		# 5 = left
+	sleep(time);
 }
 
 # One function needs to be named "main" for the program to run.
-int main
-	()
-	(int localInt)
+void main()(int localInt)
 {
-	localInt = 0;			# Assign a value to a local variable
+	localInt = 0;
 	
-	while (localInt < 10)	# There are "while" loops, but not "for" loops
+	while (true)
 	{
-		localInt = localInt + 1;			# Arithmetic operation
-		
-		sleep(500);							# Call an external function
-		print("Hello World!", localInt);
-		doSomething(localInt, 100);			# Call a function defined in this file
-		
-		if (localInt == 5)					# Conditional execution with "if" (no "else" yet)
-		{
-			print("Halfway Point:", localInt);
-		}
+		print("Moving!", localInt);
+		moveTheBall(1000);
+		localInt = localInt + 1;
 	}
-	
-	return localInt;		# Return a value
 }

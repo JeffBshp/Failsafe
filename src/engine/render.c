@@ -138,7 +138,7 @@ static void InitShapeBuffer(GameState* gs, int shapeIndex)
 // initializes OpenGL buffers
 static void InitBuffers(GameState* gs)
 {
-	const int n = 7;
+	const int n = 3;
 	const size_t numBlocks = 64 * 64 * 64;
 
 	for (int i = 0; i < n; i++) InitShapeBuffer(gs, i);
@@ -251,9 +251,9 @@ static bool InitStateObject(GameState* gs)
 {
 	// TODO: use a dynamic list or something for textures and shapes
 	gs->numTextures = 9;
-	// cubes, pyramids, spheres, planes, grouped cubes, text box, fixed spheres, loading text
+	// spheres, planes, text box, loading text
 	// TODO: keep track of objects properly, not with magical indexing
-	gs->numShapes = 8;
+	gs->numShapes = 4;
 
 	// allocate memory for lists
 	size_t glObjListSize = sizeof(GLuint) * gs->numShapes;
@@ -282,6 +282,14 @@ static bool InitStateObject(GameState* gs)
 	return true;
 }
 
+static size_t ReadProgramFile(char* buffer, int max)
+{
+	FILE* file = fopen("./code/example.txt", "r");
+	size_t n = fread(buffer, sizeof(char), max, file);
+	fclose(file);
+	return n;
+}
+
 // generates the voxel terrain and creates the various Shape objects
 static int InitGameContent(void* threadData)
 {
@@ -292,17 +300,15 @@ static int InitGameContent(void* threadData)
 	Mesher_MeshWorld(gs->world);
 
 	// create game objects
-	Shape_MakeCube(gs->shapes + 0, 3);
-	Shape_MakePyramid(gs->shapes + 1, 3);
-	Shape_MakeSphere(gs->shapes + 2, 3);
-	Shape_MakePlane(gs->shapes + 3);
-	Shape_MakeGroup(gs->shapes + 4);
-	char instructions[] = "Move: WASD/Space/LShift\nLook: Mouse\nMove Object: IJKLUO\nCycle Objects: Z/X\nCreate Object: V\nStop Object: CTRL\nToggle Gravity: Enter\nEdit Text: ALT\nQuit: ESC\n";
-	gs->textBox = Shape_MakeTextBox(gs->shapes + 5, 75, 50, true, instructions);
-	gs->textBox->i = strlen(instructions);
-	Shape_MakeFixedSpheres(gs->shapes + 6, 0);
-	gs->currentModel = gs->shapes[2].models + 2;
-	gs->shapes[2].instanceData[17 * 2] = TEX_BLUE;
+	Shape_MakeSphere(gs->shapes + 0, 3);
+	Shape_MakePlane(gs->shapes + 1);
+	char initialText[5000];
+	size_t n = ReadProgramFile(initialText, 5000);
+	initialText[n] = '\0';
+	gs->textBox = Shape_MakeTextBox(gs->shapes + 2, 75, 50, true, initialText);
+	gs->textBox->i = n - 1;
+	gs->currentModel = gs->shapes[0].models + 2;
+	gs->shapes[0].instanceData[17 * 2] = TEX_BLUE;
 	printf("Created shapes.\n");
 	
 	gs->progress->done = true;
@@ -313,7 +319,7 @@ static int InitGameContent(void* threadData)
 // temporary rendering while the game is loading
 static void DrawLoading(GameState* gs)
 {
-	const int shapeI = 7;
+	const int shapeI = 3;
 
 	glClearColor(0.5f, 0.3f, 0.3f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -374,7 +380,7 @@ bool Render_Init(GameState* gs)
 	LoadTextures(gs);
 
 	Progress* prog = gs->progress;
-	const int i = 7, nCols = 60, nRows = 10;
+	const int i = 3, nCols = 60, nRows = 10;
 	gs->loadingTextBox = Shape_MakeTextBox(gs->shapes + i, nCols, nRows, false, NULL);
 	gs->loadingTextBox->texOffset = TEX_SET2;
 	glm_translate(gs->loadingTextBox->shape->groupMat, (vec3) { 30.0f, 0.0f, -30.0f });
@@ -459,7 +465,7 @@ void Render_Draw(GameState* gs)
 	{
 		Shape* shape = gs->shapes + i;
 
-		if (i == 7)
+		if (i == 3)
 		{
 			glm_mat4_identity(shape->groupMat);
 			glm_translate(shape->groupMat, gs->cam->pos);

@@ -1,5 +1,7 @@
 .vs/*
 *.bak
+*.mem
+*.temp
 *.vcxproj.*
 build/*
 obj/*

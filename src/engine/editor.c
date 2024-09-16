@@ -290,3 +290,12 @@ void Editor_Update(TextBox* tb, int ticks)
 		if (consume) i++;
 	}
 }
+
+void Editor_SaveToFile(TextBox* tb, char* filePath)
+{
+	FILE* file = fopen(filePath, "w");
+	int i = 0, n = tb->nCols * tb->nRows;
+	while (i < n && tb->text[i] != '\0')
+		fwrite(tb->text + i++, sizeof(char), 1, file);
+	fclose(file);
+}

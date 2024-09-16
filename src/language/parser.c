@@ -566,7 +566,7 @@ SyntaxTree* Parser_ParseFile(char* filePath)
 	Function* functionPtr = functionBuffer;
 	Lexer* lex = Lexer_OpenFile(filePath);
 
-	ast->numFunctions = 2; // number of external functions
+	ast->numFunctions = 3; // number of external functions
 
 	// "print" function
 	Parameter* p = calloc(2, sizeof(Parameter));
@@ -578,6 +578,11 @@ SyntaxTree* Parser_ParseFile(char* filePath)
 	p = calloc(1, sizeof(Parameter));
 	p[0] = (Parameter){ .name = "ticks", .type = DAT_INT };
 	AddExternalFunction(functionPtr++, "sleep", p, 1, EXTF_SLEEP);
+
+	// "move" function
+	p = calloc(1, sizeof(Parameter));
+	p[0] = (Parameter){ .name = "direction", .type = DAT_INT };
+	AddExternalFunction(functionPtr++, "move", p, 1, EXTF_MOVE);
 
 	while (ast->numFunctions <= MAX_FUNCTIONS && HasToken(lex))
 	{

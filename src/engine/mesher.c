@@ -9,7 +9,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <math.h>
-#include "SDL.h"
+#include "SDL2/SDL.h"
 #include "cglm/cglm.h"
 #include "noise.h"
 #include "utility.h"

@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <math.h>
 #include <time.h>
-#include "SOIL2/SOIL2.h"
 #include "noise.h"
 
 // Credit:

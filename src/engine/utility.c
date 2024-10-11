@@ -82,7 +82,7 @@ Treadmill3D* Treadmill3DNew(Treadmill3DLoader loader, TreadmillUnloader unloader
 	int w = (2 * radius + 1);
 	int length = w * w * w;
 	int listSize = length * sizeof(void*);
-	Treadmill3D* t = malloc(sizeof(Treadmill3D) + listSize);
+	Treadmill3D* t = calloc(1, sizeof(Treadmill3D) + listSize);
 
 	if (t != NULL)
 	{
@@ -105,8 +105,7 @@ Treadmill3D* Treadmill3DNew(Treadmill3DLoader loader, TreadmillUnloader unloader
 			{
 				for (int x = -radius; x <= radius; x++)
 				{
-					t->list[i] = loader(loaderObj, x, y, z);
-					i++;
+					t->list[i++] = loader(loaderObj, x, y, z);
 				}
 			}
 		}

@@ -2,11 +2,12 @@
 #include <stdbool.h>
 #include <string.h>
 #include <math.h>
-#include "SDL.h"
-#include "SDL_thread.h"
-#include "gl/glew.h"
-#include "SDL_opengl.h"
-#include "SOIL2/SOIL2.h"
+#include "SDL2/SDL.h"
+#include "SDL2/SDL_thread.h"
+#include "GL/glew.h"
+#include "SDL2/SDL_opengl.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb/stb_image.h"
 #include "cglm/cglm.h"
 #include "camera.h"
 #include "shader.h"
@@ -22,8 +23,10 @@ static void LoadTextureArray(GLuint texture, const char* filePath, int nCols, in
 
 	const int nMipmaps = 1;
 	int nTiles = nCols * nRows;
-	int tWidth, tHeight;
-	unsigned char* textureBytes = SOIL_load_image(filePath, &tWidth, &tHeight, 0, SOIL_LOAD_RGBA);
+	int tWidth, tHeight, tChannels;
+
+	unsigned char* textureBytes = stbi_load(filePath, &tWidth, &tHeight, &tChannels, 0);
+
 	tWidth /= nCols;
 	tHeight /= nRows;
 
@@ -59,7 +62,7 @@ static void LoadTextureArray(GLuint texture, const char* filePath, int nCols, in
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
 
-	SOIL_free_image_data(textureBytes);
+	stbi_image_free(textureBytes);
 }
 
 static void LoadTextures(GameState* gs)
@@ -284,7 +287,7 @@ static bool InitStateObject(GameState* gs)
 
 static size_t ReadProgramFile(char* buffer, int max)
 {
-	FILE* file = fopen("./code/example.txt", "r");
+	FILE* file = fopen("res/code/example.txt", "r");
 	size_t n = fread(buffer, sizeof(char), max, file);
 	fclose(file);
 	return n;
@@ -296,7 +299,7 @@ static int InitGameContent(void* threadData)
 	printf("Thread running.\n");
 	GameState* gs = threadData;
 
-	World_Init(gs->world, gs->progress);
+	World_Init(gs->world, gs->worldFilePath);
 	Mesher_MeshWorld(gs->world);
 
 	// create game objects
@@ -351,7 +354,7 @@ static void DrawLoading(GameState* gs)
 		glm_mat4_mul(shape->groupMat, tempMat, tempMat);
 		glm_translate(tempMat, model->pos);
 		glm_scale(tempMat, (vec3) { model->scale, model->scale, model->scale });
-		glm_mat4_copy(tempMat, matrix);
+		memcpy(matrix, tempMat, sizeof(mat4));
 	}
 
 	// re-buffer the instance data because transformations may have changed
@@ -416,6 +419,8 @@ void Render_Destroy(GameState* gs)
 
 	gs->world->alive = false;
 
+	World_Save(gs->world, gs->worldFilePath);
+
 	Shape_FreeTextBox(gs->textBox);
 
 	for (int i = 0; i < gs->numShapes; i++)
@@ -475,7 +480,7 @@ void Render_Draw(GameState* gs)
 			float s = 0.01;
 			glm_scale(shape->groupMat, (vec3) { s, s, s });
 		}
-		
+
 		// bind the VAO of the current shape
 		glBindVertexArray(gs->VAO[i]);
 
@@ -500,7 +505,7 @@ void Render_Draw(GameState* gs)
 			scale[2] = model->scale;
 			glm_scale(tempMat, scale);
 
-			glm_mat4_copy(tempMat, matrix);
+			memcpy(matrix, tempMat, sizeof(mat4));
 		}
 
 		// re-buffer the instance data because transformations may have changed

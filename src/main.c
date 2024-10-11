@@ -6,10 +6,9 @@
 #include <stdbool.h>
 #include <math.h>
 
-#include "SDL.h"
-#include "gl/glew.h"
-#include "SDL_opengl.h"
-#include "SOIL2/SOIL2.h"
+#include "SDL2/SDL.h"
+#include "SDL2/SDL_timer.h"
+#include "GL/glew.h"
 #include "cglm/cglm.h"
 
 #include "engine/camera.h"
@@ -31,7 +30,7 @@
 #include "hardware/memory.h"
 #include "hardware/processor.h"
 
-static void CodeDemo(void* threadData)
+static int CodeDemo(void* threadData)
 {
 	GameState* gs = threadData;
 	SDL_Delay(3000);
@@ -44,10 +43,11 @@ static void CodeDemo(void* threadData)
 
 	while (true)
 	{
-		SDL_Delay(500);
+		SDL_Delay(1000);
 
 		if (gs->runProgram)
 		{
+			printf("Compile Program...\n");
 			gs->runProgram = false;
 
 			// Save the source code
@@ -58,8 +58,9 @@ static void CodeDemo(void* threadData)
 
 			if (p->status == COMPILE_SUCCESS)
 			{
+				printf("Run Program...\n");
 				SDL_memcpy(mem.data, p->bin, p->length * sizeof(uword)); // Load program into virtual memory
-				Memory_WriteFile(mem, "./code/example.mem"); // Save the raw binary to a file
+				Memory_WriteFile(mem, "res/code/example.mem"); // Save the raw binary to a file
 
 				Processor_Reset(proc, p->mainAddress, 1024); // Set the addresses of the program and the stack
 				Processor_Run(proc); // Run the processor until it halts
@@ -76,17 +77,18 @@ static void CodeDemo(void* threadData)
 
 	free(proc);
 	Memory_Destroy(mem);
+	return 0;
 }
 
 int main(int argc, char* argv[])
 {
-
 	Camera cam;
 	NoiseMaker nm = { .initialized = false };
 	Progress prog = { .percent1 = 0, .percent2 = 0, .done = false };
 	World w = { .noiseMaker = &nm, .progress = &prog };
 	GameState gs = { .world = &w, .cam = &cam, .progress = &prog };
-	gs.programFilePath = "./code/example.temp";
+	gs.programFilePath = "res/code/example.temp";
+	gs.worldFilePath = "res/world/world.world";
 	InputState key = { .gravity = false, .running = true };
 
 	SDL_DetachThread(SDL_CreateThread(&CodeDemo, "Code Demo Thread", &gs));
@@ -101,6 +103,7 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	printf("Start game loop...\n");
 	while (key.running)
 	{
 		Input_HandleInput(&key, &gs);

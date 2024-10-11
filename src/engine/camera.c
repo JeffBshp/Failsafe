@@ -19,7 +19,7 @@ void Camera_GetViewMatrix(Camera* c, mat4 m)
 	glm_lookat(c->pos, c->look, c->up, m);
 }
 
-inline void Camera_Move(Camera* c, vec3 move)
+void Camera_Move(Camera* c, vec3 move)
 {
 	glm_vec3_add(c->pos, move, c->pos);
 }

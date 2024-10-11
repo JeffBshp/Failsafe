@@ -24,7 +24,7 @@ static char** ReadFileLines(const char* path, int* n)
 
 	while (fgets(&line, MAX_LINE_LENGTH, file) != NULL && *n < MAX_LINES)
 	{
-		GLchar* l = _strdup(&line);
+		GLchar* l = strdup(&line);
 		if (l == NULL) return -1;
 		lines[*n] = l;
 		(*n)++;

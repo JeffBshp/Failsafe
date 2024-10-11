@@ -1,8 +1,6 @@
-.vs/*
 *.bak
+*.bin
 *.mem
 *.temp
-*.vcxproj.*
-build/*
+*.world
 obj/*
-packages/*

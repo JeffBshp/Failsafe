@@ -1,6 +1,6 @@
 #include <string.h>
 #include <ctype.h>
-#include "SDL.h"
+#include "SDL2/SDL.h"
 #include "shape.h"
 #include "utility.h"
 #include "editor.h"
@@ -138,13 +138,13 @@ void Editor_Edit(TextBox* tb, SDL_Keysym sym)
 	{
 		if (modCtrl) i = SkipWord(s, i, false);
 		else i--;
-		MoveCursor(tb, i, modShift, modCtrl);
+		MoveCursor(tb, i, modShift);
 	}
 	else if (i < n && c == SDLK_RIGHT)
 	{
 		if (modCtrl) i = SkipWord(s, i, true);
 		else i++;
-		MoveCursor(tb, i, modShift, modCtrl);
+		MoveCursor(tb, i, modShift);
 	}
 	else if (i > 0 && c == SDLK_UP)
 	{

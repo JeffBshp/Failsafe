@@ -865,7 +865,7 @@ Program* Compiler_GenerateCode(SyntaxTree* ast)
 	return program;
 }
 
-Compiler_Destroy(Program* p)
+void Compiler_Destroy(Program* p)
 {
 	if (p != NULL)
 	{

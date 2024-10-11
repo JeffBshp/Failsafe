@@ -1,7 +1,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <math.h>
-#include "SDL.h"
+#include "SDL2/SDL.h"
 #include "cglm/cglm.h"
 #include "input.h"
 #include "render.h"
@@ -44,6 +44,7 @@ static bool IsSolidBlock(World* world, vec3 pos)
 {
 	vec3 cPos;
 	Chunk* chunk = WorldToChunkCoords(world, pos, cPos);
+	if (chunk == NULL) return false;
 	return GetBlock(chunk, cPos) != 0;
 }
 
@@ -149,9 +150,8 @@ static void CheckChunks(GameState* gs)
 
 	if (x < wX) dir = 0;
 	else if (x > wX + 64) dir = 1;
-	// TODO: no vertically stacked chunks for now
-	//else if (y < wY) dir = 2;
-	//else if (y > wY + 64) dir = 3;
+	else if (y < wY) dir = 2;
+	else if (y > wY + 64) dir = 3;
 	else if (z < wZ) dir = 4;
 	else if (z > wZ + 64) dir = 5;
 
@@ -243,7 +243,7 @@ void Input_Update(InputState* key, GameState* gs)
 		glm_vec3_add(gs->cam->pos, gs->cam->vel, gs->cam->pos); // apply velocity to position
 		
 		// prevent falling into the abyss
-		if (gs->cam->pos[1] < -100.0f)
+		if (gs->cam->pos[1] < -1000.0f)
 		{
 			gs->cam->pos[1] = 100.0f;
 			glm_vec3_zero(gs->cam->vel);
@@ -312,7 +312,6 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 		if (gs->textBox->focused)
 			gs->textBox->focused = false;
 		else
-			printf("EVENT: ESC KeyDown\n");
 			key->running = false;
 		break;
 

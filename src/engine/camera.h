@@ -17,6 +17,6 @@ void Camera_Init(Camera* c);
 
 void Camera_GetViewMatrix(Camera* c, mat4 m);
 
-inline void Camera_Move(Camera* c, vec3 move);
+void Camera_Move(Camera* c, vec3 move);
 
 void Camera_UpdateVectors(Camera* c);

@@ -52,11 +52,11 @@ static inline bool IsNotQuote(int c)
 	return c != SYM_QUOTE;
 }
 
-static int SkipWhile(Lexer* lex, bool (*test)(int))
+static int SkipWhile(Lexer* lex, int (*test)(int))
 {
 	int start = lex->i;
 
-	while (lex->status == LEX_ACTIVE && test(lex->c))
+	while (lex->status == LEX_ACTIVE && 0 != test(lex->c))
 		NextChar(lex);
 
 	// return number of chars skipped
@@ -278,8 +278,7 @@ void Lexer_NextToken(Lexer* lex)
 
 	if (c == SYM_MINUS || c == SYM_PERIOD || isdigit(c))
 	{
-		if (TryReadNumber(lex))
-			return;
+		if (TryReadNumber(lex)) return;
 	}
 	else if (isalpha(c))
 	{

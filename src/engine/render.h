@@ -1,9 +1,9 @@
 #pragma once
 
 #include <stdbool.h>
-#include "SDL.h"
-#include "gl/glew.h"
-#include "SDL_opengl.h"
+#include "SDL2/SDL.h"
+#include "GL/glew.h"
+#include "SDL2/SDL_opengl.h"
 #include "cglm/cglm.h"
 #include "shape.h"
 #include "camera.h"
@@ -42,6 +42,7 @@ typedef struct
 	bool runProgram;
 	bool* processorHalt;
 	char* programFilePath;
+	char* worldFilePath;
 	TextBox* textBox;
 	TextBox* loadingTextBox;
 	Progress* progress;

@@ -7,8 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "SDL.h"
-#include "SDL_thread.h"
+#include "SDL2/SDL.h"
+#include "SDL2/SDL_thread.h"
 #include "cglm/cglm.h"
 #include "utility.h"
 #include "world.h"
@@ -189,7 +189,7 @@ static void ChunkKillThread(void* threadData)
 	}
 }
 
-void World_Init(World* world)
+void World_Init(World* world, char* filePath)
 {
 	Uint32 ticks = SDL_GetTicks();
 
@@ -199,6 +199,42 @@ void World_Init(World* world)
 	world->dirty = true;
 	ListUInt64Init(&world->deadChunks, 64);
 	world->chunks = Treadmill3DNew(ChunkLoader, ChunkUnloader, world, radius);
+
+	FILE* file = fopen(filePath, "rb");
+
+	if (file != NULL)
+	{
+		void** chunks = world->chunks->list;
+		int n = world->chunks->length;
+		const int numBlocks = 64 * 64 * 64;
+		ivec3 coords;
+
+		while (3 == fread(coords, sizeof(int), 3, file))
+		{
+			Chunk* chunk = Treadmill3DGet(world->chunks, coords[0], coords[1], coords[2]);
+			bool didRead = false;
+
+			if (chunk != NULL)
+			{
+				SDL_LockMutex(chunk->mutex);
+
+				if (!EnumHasFlag(chunk->flags, CHUNK_LOADED) &&
+					!EnumHasFlag(chunk->flags, CHUNK_DIRTY))
+				{
+					fread(chunk->blocks, sizeof(char), numBlocks, file);
+					chunk->flags |= CHUNK_LOADED | CHUNK_DIRTY;
+					didRead = true;
+				}
+
+				SDL_UnlockMutex(chunk->mutex);
+			}
+
+			if (!didRead)
+			{
+				fseek(file, numBlocks * sizeof(char), SEEK_CUR);
+			}
+		}
+	}
 
 	for (int i = 0; i < NUM_CHUNK_THREADS; i++)
 	{
@@ -211,4 +247,32 @@ void World_Init(World* world)
 
 	ticks = SDL_GetTicks() - ticks;
 	printf("World init took %d ms.\n", ticks);
+}
+
+void World_Save(World* world, char* filePath)
+{
+	SDL_LockMutex(world->mutex);
+	FILE* file = fopen(filePath, "wb");
+	void** chunks = world->chunks->list;
+	int n = world->chunks->length;
+	const int numBlocks = 64 * 64 * 64;
+
+	if (file != NULL)
+	{
+		for (int i = 0; i < n; i++)
+		{
+			Chunk* chunk = chunks[i];
+			SDL_LockMutex(chunk->mutex);
+
+			if (EnumHasFlag(chunk->flags, CHUNK_LOADED))
+			{
+				fwrite(chunk->coords, sizeof(int), 3, file);
+				fwrite(chunk->blocks, sizeof(char), numBlocks, file);
+			}
+
+			SDL_UnlockMutex(chunk->mutex);
+		}
+	}
+
+	SDL_UnlockMutex(world->mutex);
 }

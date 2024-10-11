@@ -40,4 +40,5 @@ typedef struct
 	ChunkFlags flags;
 } Chunk;
 
-void World_Init(World* world);
+void World_Init(World* world, char* filePath);
+void World_Save(World* world, char* filePath);

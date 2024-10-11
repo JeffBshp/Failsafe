@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include "gl/glew.h"
+#include "GL/glew.h"
 #include "cglm/cglm.h"
 #include "utility.h"
 #include "shape.h"
@@ -25,7 +25,7 @@ static void MakeShape(Shape* shape, GLfloat* vertices, size_t numBytesVertices, 
 	shape->numIndices = numBytesIndices / sizeof(indices[0]);
 	memcpy(shape->indices, indices, numBytesIndices);
 
-	shape->models = malloc(numModels * (sizeof(Model) + MODEL_INSTANCE_SIZE));
+	shape->models = calloc(numModels, sizeof(Model) + MODEL_INSTANCE_SIZE);
 	shape->instanceData = shape->models + numModels;
 	shape->numModels = numModels;
 	shape->groupMat = NULL;
@@ -45,7 +45,6 @@ static void MakeShape(Shape* shape, GLfloat* vertices, size_t numBytesVertices, 
 		float* texI = shape->instanceData + (i * 17);
 		*texI = TEX_WHITE;
 		mat4* matrix = texI + 1;
-		glm_mat4_zero(matrix);
 	}
 }
 

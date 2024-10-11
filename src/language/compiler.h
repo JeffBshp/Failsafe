@@ -58,4 +58,4 @@ typedef struct
 } Program;
 
 Program* Compiler_GenerateCode(SyntaxTree* ast);
-Compiler_Destroy(Program* p);
+void Compiler_Destroy(Program* p);

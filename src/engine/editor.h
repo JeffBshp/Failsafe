@@ -1,6 +1,6 @@
 #pragma once
 
-#include "SDL_keyboard.h"
+#include "SDL2/SDL_keyboard.h"
 #include "shape.h"
 
 void Editor_Edit(TextBox* tb, SDL_Keysym sym);

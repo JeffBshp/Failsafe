@@ -78,8 +78,8 @@ void Physics_Collide(Shape* shapes, int shapeC)
 
 						if (d < minD)
 						{
-							vec3* vi1 = model->vel;
-							vec3* vi2 = otherModel->vel;
+							vec3* vi1 = (void*)(model->vel);
+							vec3* vi2 = (void*)(otherModel->vel);
 							float m1 = model->mass;
 							float m2 = otherModel->mass;
 

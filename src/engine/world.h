@@ -18,6 +18,7 @@ enum
 
 typedef struct
 {
+	char* folderPath;
 	Treadmill3D* chunks;
 	NoiseMaker* noiseMaker;
 	Progress* progress;
@@ -40,5 +41,4 @@ typedef struct
 	ChunkFlags flags;
 } Chunk;
 
-void World_Init(World* world, char* filePath);
-void World_Save(World* world, char* filePath);
+void World_Init(World* world);

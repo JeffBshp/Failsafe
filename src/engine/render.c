@@ -195,7 +195,11 @@ static bool InitSDL(GameState* gs)
 		return false;
 	}
 
+	//SDL_SetHint(SDL_HINT_GRAB_KEYBOARD, "1");
+	//SDL_SetWindowGrab(gs->window, SDL_TRUE);
+
 	SDL_SetRelativeMouseMode(SDL_TRUE);
+
 	//SDL_ShowCursor(SDL_DISABLE);
 
 	printf("Created OpenGL window.\n");
@@ -275,7 +279,7 @@ static bool InitStateObject(GameState* gs)
 	gs->IBO = gs->VBO + gs->numShapes;
 	gs->EBO = gs->IBO + gs->numShapes;
 	gs->textures = gs->EBO + gs->numShapes;
-	gs->shapes = gs->textures + gs->numTextures;
+	gs->shapes = (void*)(gs->textures + gs->numTextures);
 	printf("Initialized arrays.\n");
 
 	Camera_Init(gs->cam);
@@ -299,7 +303,7 @@ static int InitGameContent(void* threadData)
 	printf("Thread running.\n");
 	GameState* gs = threadData;
 
-	World_Init(gs->world, gs->worldFilePath);
+	World_Init(gs->world);
 	Mesher_MeshWorld(gs->world);
 
 	// create game objects
@@ -332,12 +336,12 @@ static void DrawLoading(GameState* gs)
 	glm_mat4_identity(gs->matProj);
 	glm_perspective(45.0f, (GLfloat)WIDTH / (GLfloat)HEIGHT, 0.1f, 500.0f, gs->matProj);
 	GLint projLoc = glGetUniformLocation(gs->basicShader, "ourProj");
-	glUniformMatrix4fv(projLoc, 1, GL_FALSE, gs->matProj);
+	glUniformMatrix4fv(projLoc, 1, GL_FALSE, (void*)(gs->matProj));
 
 	glm_mat4_identity(gs->matView);
 	Camera_GetViewMatrix(gs->cam, gs->matView);
 	GLint viewLoc = glGetUniformLocation(gs->basicShader, "ourView");
-	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, gs->matView);
+	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, (void*)(gs->matView));
 
 	glBindTexture(GL_TEXTURE_2D, gs->textures[8]);
 
@@ -348,10 +352,10 @@ static void DrawLoading(GameState* gs)
 	for (int i = 0; i < shape->numModels; i++)
 	{
 		Model* model = shape->models + i;
-		mat4* matrix = shape->instanceData + (i * 17) + 1;
+		mat4* matrix = (void*)(shape->instanceData + (i * 17) + 1);
 		mat4 tempMat;
 		glm_mat4_identity(tempMat);
-		glm_mat4_mul(shape->groupMat, tempMat, tempMat);
+		glm_mat4_mul((void*)(shape->groupMat), tempMat, tempMat);
 		glm_translate(tempMat, model->pos);
 		glm_scale(tempMat, (vec3) { model->scale, model->scale, model->scale });
 		memcpy(matrix, tempMat, sizeof(mat4));
@@ -386,7 +390,7 @@ bool Render_Init(GameState* gs)
 	const int i = 3, nCols = 60, nRows = 10;
 	gs->loadingTextBox = Shape_MakeTextBox(gs->shapes + i, nCols, nRows, false, NULL);
 	gs->loadingTextBox->texOffset = TEX_SET2;
-	glm_translate(gs->loadingTextBox->shape->groupMat, (vec3) { 30.0f, 0.0f, -30.0f });
+	glm_translate((void*)(gs->loadingTextBox->shape->groupMat), (vec3) { 30.0f, 0.0f, -30.0f });
 	// For now, only initialize buffers for this loading text box.
 	// Then loading info can be rendered while everything else is initialized.
 	// TODO: this is horrendous
@@ -418,8 +422,6 @@ void Render_Destroy(GameState* gs)
 		return;
 
 	gs->world->alive = false;
-
-	World_Save(gs->world, gs->worldFilePath);
 
 	Shape_FreeTextBox(gs->textBox);
 
@@ -455,12 +457,12 @@ void Render_Draw(GameState* gs)
 	glm_mat4_identity(gs->matProj);
 	glm_perspective(45.0f, (GLfloat)WIDTH / (GLfloat)HEIGHT, 0.1f, 500.0f, gs->matProj);
 	GLint projLoc = glGetUniformLocation(gs->basicShader, "ourProj");
-	glUniformMatrix4fv(projLoc, 1, GL_FALSE, gs->matProj);
+	glUniformMatrix4fv(projLoc, 1, GL_FALSE, (void*)(gs->matProj));
 
 	glm_mat4_identity(gs->matView);
 	Camera_GetViewMatrix(gs->cam, gs->matView);
 	GLint viewLoc = glGetUniformLocation(gs->basicShader, "ourView");
-	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, gs->matView);
+	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, (void*)(gs->matView));
 
 	glBindTexture(GL_TEXTURE_2D, gs->textures[8]);
 
@@ -472,13 +474,14 @@ void Render_Draw(GameState* gs)
 
 		if (i == 3)
 		{
-			glm_mat4_identity(shape->groupMat);
-			glm_translate(shape->groupMat, gs->cam->pos);
-			glm_rotate_y(shape->groupMat, glm_rad(-gs->cam->rot[0]), shape->groupMat);
-			glm_rotate_z(shape->groupMat, glm_rad(gs->cam->rot[1]), shape->groupMat);
-			glm_translate(shape->groupMat, (vec3) { 1.0, 0.5, -0.95 });
+			void* groupMatrix = shape->groupMat;
+			glm_mat4_identity(groupMatrix);
+			glm_translate(groupMatrix, gs->cam->pos);
+			glm_rotate_y(groupMatrix, glm_rad(-gs->cam->rot[0]), groupMatrix);
+			glm_rotate_z(groupMatrix, glm_rad(gs->cam->rot[1]), groupMatrix);
+			glm_translate(groupMatrix, (vec3) { 1.0, 0.5, -0.95 });
 			float s = 0.01;
-			glm_scale(shape->groupMat, (vec3) { s, s, s });
+			glm_scale(groupMatrix, (vec3) { s, s, s });
 		}
 
 		// bind the VAO of the current shape
@@ -488,12 +491,12 @@ void Render_Draw(GameState* gs)
 		for (int j = 0; j < shape->numModels; j++)
 		{
 			Model* model = shape->models + j;
-			mat4* matrix = shape->instanceData + (j * 17) + 1;
+			mat4* matrix = (void*)(shape->instanceData + (j * 17) + 1);
 			mat4 tempMat;
 			glm_mat4_identity(tempMat);
 
 			if (shape->groupMat != NULL)
-				glm_mat4_mul(shape->groupMat, tempMat, tempMat);
+				glm_mat4_mul((void*)(shape->groupMat), tempMat, tempMat);
 
 			glm_translate(tempMat, model->pos);
 			glm_rotate_x(tempMat, model->rot[0], tempMat);
@@ -517,8 +520,8 @@ void Render_Draw(GameState* gs)
 	}
 
 	glUseProgram(gs->chunkShader);
-	glUniformMatrix4fv(glGetUniformLocation(gs->chunkShader, "ourProj"), 1, GL_FALSE, gs->matProj);
-	glUniformMatrix4fv(glGetUniformLocation(gs->chunkShader, "ourView"), 1, GL_FALSE, gs->matView);
+	glUniformMatrix4fv(glGetUniformLocation(gs->chunkShader, "ourProj"), 1, GL_FALSE, (void*)(gs->matProj));
+	glUniformMatrix4fv(glGetUniformLocation(gs->chunkShader, "ourView"), 1, GL_FALSE, (void*)(gs->matView));
 	glBindTexture(GL_TEXTURE_2D, gs->textures[8]);
 	glBindVertexArray(gs->chunkBAO);
 	const size_t numBlocks = 64 * 64 * 64;
@@ -552,7 +555,7 @@ void Render_Draw(GameState* gs)
 
 				glm_mat4_identity(chunkModel);
 				glm_translate(chunkModel, chunkPos);
-				glUniformMatrix4fv(glGetUniformLocation(gs->chunkShader, "ourModel"), 1, GL_FALSE, chunkModel);
+				glUniformMatrix4fv(glGetUniformLocation(gs->chunkShader, "ourModel"), 1, GL_FALSE, (void*)chunkModel);
 
 				// TODO: Keep all chunks in one buffer and call glBufferSubData.
 				// TODO: Only buffer if chunk has changed.

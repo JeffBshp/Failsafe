@@ -86,7 +86,7 @@ Treadmill3D* Treadmill3DNew(Treadmill3DLoader loader, TreadmillUnloader unloader
 
 	if (t != NULL)
 	{
-		t->list = t + 1;
+		t->list = (void*)(t + 1);
 		t->loader = loader;
 		t->unloader = unloader;
 		t->loaderObj = loaderObj;

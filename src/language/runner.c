@@ -10,7 +10,7 @@
 
 static inline EX_Value InvalidValue()
 {
-	return (EX_Value) { .type = DAT_INVALID, .value = NULL };
+	return (EX_Value) { .type = DAT_INVALID, .value.asInt = (int)NULL };
 }
 
 static EX_Value Evaluate(RunContext* c, Expression* e);

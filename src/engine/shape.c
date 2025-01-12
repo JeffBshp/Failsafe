@@ -21,12 +21,12 @@ static void MakeShape(Shape* shape, GLfloat* vertices, size_t numBytesVertices, 
 	shape->numVertices = numBytesVertices / sizeof(vertices[0]);
 	memcpy(shape->vertices, vertices, numBytesVertices);
 	
-	shape->indices = shape->vertices + shape->numVertices;
+	shape->indices = (void*)(shape->vertices + shape->numVertices);
 	shape->numIndices = numBytesIndices / sizeof(indices[0]);
 	memcpy(shape->indices, indices, numBytesIndices);
 
 	shape->models = calloc(numModels, sizeof(Model) + MODEL_INSTANCE_SIZE);
-	shape->instanceData = shape->models + numModels;
+	shape->instanceData = (void*)(shape->models + numModels);
 	shape->numModels = numModels;
 	shape->groupMat = NULL;
 
@@ -44,7 +44,7 @@ static void MakeShape(Shape* shape, GLfloat* vertices, size_t numBytesVertices, 
 		glm_vec3_zero(model->rot);
 		float* texI = shape->instanceData + (i * 17);
 		*texI = TEX_WHITE;
-		mat4* matrix = texI + 1;
+		mat4* matrix = (void*)(texI + 1);
 	}
 }
 
@@ -62,7 +62,7 @@ Model* Shape_AddModel(Shape* shape)
 {
 	shape->numModels++;
 	shape->models = realloc(shape->models, shape->numModels * (sizeof(Model) + MODEL_INSTANCE_SIZE));
-	shape->instanceData = shape->models + shape->numModels;
+	shape->instanceData = (void*)(shape->models + shape->numModels);
 
 	Model* newModel = shape->models + shape->numModels - 1;
 	Model lastModel = shape->models[shape->numModels - 2];
@@ -80,14 +80,14 @@ Model* Shape_AddModel(Shape* shape)
 	{
 		float* texI = shape->instanceData + (i * 17);
 		*texI = TEX_WHITE;
-		mat4* matrix = texI + 1;
-		glm_mat4_zero(matrix);
+		mat4* matrix = (void*)(texI + 1);
+		glm_mat4_zero((void*)matrix);
 	}
 
 	float* texI = shape->instanceData + ((shape->numModels - 1) * 17);
 	*texI = TEX_BLUE;
-	mat4* matrix = texI + 1;
-	glm_mat4_zero(matrix);
+	mat4* matrix = (void*)(texI + 1);
+	glm_mat4_zero((void*)matrix);
 
 	return newModel;
 }
@@ -203,8 +203,8 @@ void Shape_MakeGroup(Shape* shape)
 	Shape_MakeCube(shape, 6);
 
 	shape->groupMat = malloc(sizeof(mat4));
-	glm_mat4_identity(shape->groupMat);
-	glm_translate(shape->groupMat, (vec3) { 50.0f, 100.0f, 0.0f });
+	glm_mat4_identity((void*)(shape->groupMat));
+	glm_translate((void*)(shape->groupMat), (vec3) { 50.0f, 100.0f, 0.0f });
 
 	InitGroupMember(shape, 0, (vec3) { 1.5f, 0.0f, 0.0f });
 	InitGroupMember(shape, 1, (vec3) { -1.5f, 0.0f, 0.0f });
@@ -230,10 +230,9 @@ TextBox* Shape_MakeTextBox(Shape* shape, int nCols, int nRows, bool showWhiteSpa
 	size_t stringSize = (nChars + 1) * sizeof(char); // +1 for null terminator
 	// Allocates space for the chars of the string in the same block as the struct.
 	// The struct also has a pointer (textBox->text) to the beginning of the string.
-	TextBox* textBox = malloc(sizeof(TextBox) + stringSize);
+	TextBox* textBox = calloc(1, sizeof(TextBox) + stringSize);
 	textBox->shape = shape;
-	textBox->text = textBox + 1;
-	memset(textBox->text, '\0', nChars + 1);
+	textBox->text = ((void*)(textBox + 1));
 	//textBox->text[0] = '\0';
 	textBox->nCols = nCols;
 	textBox->nRows = nRows;
@@ -248,9 +247,9 @@ TextBox* Shape_MakeTextBox(Shape* shape, int nCols, int nRows, bool showWhiteSpa
 	MakeShape(shape, vertices, sizeof(vertices), indices, sizeof(indices), nChars, 0.0f, 0.0f, 0.0f);
 
 	shape->groupMat = malloc(sizeof(mat4));
-	glm_mat4_identity(shape->groupMat);
-	glm_translate(shape->groupMat, (vec3) { 30.0f, 149.4f, -29.6f });
-	glm_scale(shape->groupMat, (vec3) { 0.5f, 0.5f, 0.5f });
+	glm_mat4_identity((void*)(shape->groupMat));
+	glm_translate((void*)(shape->groupMat), (vec3) { 30.0f, 149.4f, -29.6f });
+	glm_scale((void*)(shape->groupMat), (vec3) { 0.5f, 0.5f, 0.5f });
 
 
 	for (int y = 0; y < nRows; y++)
@@ -488,7 +487,7 @@ void Shape_MakeFixedSpheres(Shape* shape, int numModels)
 {
 	Shape_MakeSphere(shape, numModels);
 	shape->groupMat = malloc(sizeof(mat4));
-	glm_mat4_identity(shape->groupMat);
+	glm_mat4_identity((void*)(shape->groupMat));
 
 	for (int i = 0; i < numModels; i++)
 	{

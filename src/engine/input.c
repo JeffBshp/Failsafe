@@ -178,7 +178,7 @@ static void CameraCollideVoxels(World* world, Camera* cam)
 	float ox = vx > 0 ? 0.3 : -0.3;
 	float oz = vz > 0 ? 0.3 : -0.3;
 
-	vec3* posToTest = (vec3){ cx, cy - 1.4f, cz };
+	vec3* posToTest = (void*)((vec3){ cx, cy - 1.4f, cz });
 	if (IsSolidBlock(world, *posToTest))
 	{
 		cy = floorf(cy - 1.4f) + 2.3f;
@@ -186,7 +186,7 @@ static void CameraCollideVoxels(World* world, Camera* cam)
 		cam->vel[1] = 0;
 	}
 
-	posToTest = (vec3){ cx + ox + ox, cy - 1.1f, cz };
+	posToTest = (void*)((vec3){ cx + ox + ox, cy - 1.1f, cz });
 	if (IsSolidBlock(world, *posToTest))
 	{
 		cx = floorf(cx + ox + ox) - ox + (vx > 0 ? 0 : 1.0f);
@@ -194,7 +194,7 @@ static void CameraCollideVoxels(World* world, Camera* cam)
 		cam->vel[0] = 0;
 	}
 
-	posToTest = (vec3){ cx, cy - 1.1f, cz + oz + oz };
+	posToTest = (void*)((vec3){ cx, cy - 1.1f, cz + oz + oz });
 	if (IsSolidBlock(world, *posToTest))
 	{
 		cz = floorf(cz + oz + oz) - oz + (vz > 0 ? 0 : 1.0f);
@@ -313,6 +313,12 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 			gs->textBox->focused = false;
 		else
 			key->running = false;
+		break;
+
+	// easier way to release the mouse than Alt+Tab
+	case SDLK_BACKQUOTE:
+		SDL_SetWindowGrab(gs->window, SDL_FALSE);
+		SDL_MinimizeWindow(gs->window);
 		break;
 
 	case SDLK_w:

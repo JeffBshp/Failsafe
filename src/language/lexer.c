@@ -42,12 +42,12 @@ static void NextChar(Lexer* lex)
 	}
 }
 
-static inline bool IsNotNewLine(int c)
+static inline int IsNotNewLine(int c)
 {
 	return (char)c != '\n';
 }
 
-static inline bool IsNotQuote(int c)
+static inline int IsNotQuote(int c)
 {
 	return c != SYM_QUOTE;
 }

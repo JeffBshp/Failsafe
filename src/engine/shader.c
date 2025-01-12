@@ -20,12 +20,12 @@ static char** ReadFileLines(const char* path, int* n)
 	char** lines = calloc(MAX_LINES, sizeof(char*));
 	*n = 0;
 
-	if (lines == NULL) return -1;
+	if (lines == NULL) return NULL;
 
-	while (fgets(&line, MAX_LINE_LENGTH, file) != NULL && *n < MAX_LINES)
+	while (fgets(&(line[0]), MAX_LINE_LENGTH, file) != NULL && *n < MAX_LINES)
 	{
-		GLchar* l = strdup(&line);
-		if (l == NULL) return -1;
+		GLchar* l = strdup(&(line[0]));
+		if (l == NULL) return NULL;
 		lines[*n] = l;
 		(*n)++;
 	}
@@ -52,7 +52,7 @@ static int CompileShader(ShaderFile shader, char*** outCode, int* outNumLines)
 	GLint success;
 	*outCode = ReadFileLines(shader.sourcePath, outNumLines);
 	int shaderId = glCreateShader(shader.type);
-	glShaderSource(shaderId, *outNumLines, *outCode, NULL);
+	glShaderSource(shaderId, *outNumLines, (void*)(*outCode), NULL);
 	glCompileShader(shaderId);
 	glGetShaderiv(shaderId, GL_COMPILE_STATUS, &success);
 

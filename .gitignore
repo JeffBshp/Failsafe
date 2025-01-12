@@ -2,5 +2,5 @@
 *.bin
 *.mem
 *.temp
-*.world
+*.chunk
 obj/*

@@ -19,8 +19,7 @@ static inline void SetBlock(Chunk* chunk, int x, int y, int z, unsigned char typ
 	chunk->blocks[i] = type;
 }
 
-// Fills in the array of blocks.
-// Sets the CHUNK_LOADED flag when finished to indicate that the chunk is ready to be meshed.
+// Generates block data with the help of Perlin noise.
 static void GenerateChunk(Chunk* chunk)
 {
 	Uint32 ticks = SDL_GetTicks();
@@ -85,22 +84,76 @@ static void GenerateChunk(Chunk* chunk)
 	free(noise3D);
 
 	ticks = SDL_GetTicks() - ticks;
-	//printf("Chunk gen took %d ms.\n", ticks);
+	printf("Chunk gen took %d ms.\n", ticks);
+}
+
+static char* GetChunkFilePath(Chunk* chunk)
+{
+	const char* worldFolderPath = chunk->world->folderPath;
+	int pathLen = strlen(worldFolderPath) + 34; // includes null term char
+	char* chunkFilePath = calloc(pathLen, sizeof(char));
+	sprintf(chunkFilePath, "%s/%+04d_%+04d_%+04d.chunk", worldFolderPath, chunk->coords[0], chunk->coords[1], chunk->coords[2]);
+	return chunkFilePath;
+}
+
+// Saves block data to disk.
+static void SaveChunk(Chunk* chunk)
+{
+	const int numBlocks = 64 * 64 * 64;
+	char* chunkFilePath = GetChunkFilePath(chunk);
+
+	SDL_LockMutex(chunk->mutex);
+	FILE* file = fopen(chunkFilePath, "wb");
+
+	if (file != NULL)
+	{
+		fwrite(chunk->blocks, sizeof(char), numBlocks, file);
+		fclose(file);
+	}
+
+	SDL_UnlockMutex(chunk->mutex);
+	free(chunkFilePath);
+}
+
+// Reads block data from disk or generates the chunk fresh.
+// Sets the CHUNK_LOADED flag when finished to indicate that the chunk is ready to be meshed.
+static void LoadChunk(Chunk* chunk)
+{
+	const int numBlocks = 64 * 64 * 64;
+	char* chunkFilePath = GetChunkFilePath(chunk);
+
+	SDL_LockMutex(chunk->mutex);
+	FILE* file = fopen(chunkFilePath, "rb");
+	ivec3 coords;
+
+	if (file == NULL)
+	{
+		SDL_UnlockMutex(chunk->mutex);
+		GenerateChunk(chunk);
+		SaveChunk(chunk);
+	}
+	else
+	{
+		fread(chunk->blocks, sizeof(char), numBlocks, file);
+		fclose(file);
+		SDL_UnlockMutex(chunk->mutex);
+	}
 
 	// chunk is loaded and ready to mesh
 	chunk->flags |= CHUNK_LOADED;
+	free(chunkFilePath);
 }
 
 static void* ChunkLoader(void* obj, int x, int y, int z)
 {
 	const int numBlockBytes = 64 * 64 * 64 * sizeof(unsigned char);
-	Chunk* chunk = malloc(sizeof(Chunk) + numBlockBytes);
+	Chunk* chunk = calloc(1, sizeof(Chunk) + numBlockBytes);
 
 	if (chunk != NULL)
 	{
 		chunk->mutex = SDL_CreateMutex();
 		chunk->world = obj;
-		chunk->blocks = chunk + 1;
+		chunk->blocks = (void*)(chunk + 1);
 		memset(chunk->blocks, 0, numBlockBytes);
 		chunk->coords[0] = x;
 		chunk->coords[1] = y;
@@ -119,11 +172,11 @@ static void ChunkUnloader(void* item)
 	Chunk* chunk = item;
 	SDL_LockMutex(chunk->world->mutex);
 	chunk->flags |= CHUNK_DEAD;
-	ListUInt64Insert(&chunk->world->deadChunks, chunk);
+	ListUInt64Insert(&chunk->world->deadChunks, (uint64_t)chunk);
 	SDL_UnlockMutex(chunk->world->mutex);
 }
 
-static void ChunkGenThread(void* threadData)
+static int ChunkGenThread(void* threadData)
 {
 	World* world = threadData;
 
@@ -157,11 +210,13 @@ static void ChunkGenThread(void* threadData)
 		}
 
 		if (chunk == NULL) SDL_Delay(200);
-		else GenerateChunk(chunk);
+		else LoadChunk(chunk);
 	}
+
+	return 0;
 }
 
-static void ChunkKillThread(void* threadData)
+static int ChunkKillThread(void* threadData)
 {
 	World* world = threadData;
 
@@ -171,7 +226,7 @@ static void ChunkKillThread(void* threadData)
 		// list size may shrink as items are removed, and that's fine
 		for (int i = 0; i < world->deadChunks.size; i++)
 		{
-			Chunk* c = world->deadChunks.values[i];
+			Chunk* c = (Chunk*)(world->deadChunks.values[i]);
 
 			// chunk needs to be dead AND finished loading
 			if (EnumHasFlag(c->flags, CHUNK_DEAD | CHUNK_LOADED))
@@ -187,9 +242,11 @@ static void ChunkKillThread(void* threadData)
 
 		SDL_Delay(200);
 	}
+
+	return 0;
 }
 
-void World_Init(World* world, char* filePath)
+void World_Init(World* world)
 {
 	Uint32 ticks = SDL_GetTicks();
 
@@ -199,42 +256,6 @@ void World_Init(World* world, char* filePath)
 	world->dirty = true;
 	ListUInt64Init(&world->deadChunks, 64);
 	world->chunks = Treadmill3DNew(ChunkLoader, ChunkUnloader, world, radius);
-
-	FILE* file = fopen(filePath, "rb");
-
-	if (file != NULL)
-	{
-		void** chunks = world->chunks->list;
-		int n = world->chunks->length;
-		const int numBlocks = 64 * 64 * 64;
-		ivec3 coords;
-
-		while (3 == fread(coords, sizeof(int), 3, file))
-		{
-			Chunk* chunk = Treadmill3DGet(world->chunks, coords[0], coords[1], coords[2]);
-			bool didRead = false;
-
-			if (chunk != NULL)
-			{
-				SDL_LockMutex(chunk->mutex);
-
-				if (!EnumHasFlag(chunk->flags, CHUNK_LOADED) &&
-					!EnumHasFlag(chunk->flags, CHUNK_DIRTY))
-				{
-					fread(chunk->blocks, sizeof(char), numBlocks, file);
-					chunk->flags |= CHUNK_LOADED | CHUNK_DIRTY;
-					didRead = true;
-				}
-
-				SDL_UnlockMutex(chunk->mutex);
-			}
-
-			if (!didRead)
-			{
-				fseek(file, numBlocks * sizeof(char), SEEK_CUR);
-			}
-		}
-	}
 
 	for (int i = 0; i < NUM_CHUNK_THREADS; i++)
 	{
@@ -247,32 +268,4 @@ void World_Init(World* world, char* filePath)
 
 	ticks = SDL_GetTicks() - ticks;
 	printf("World init took %d ms.\n", ticks);
-}
-
-void World_Save(World* world, char* filePath)
-{
-	SDL_LockMutex(world->mutex);
-	FILE* file = fopen(filePath, "wb");
-	void** chunks = world->chunks->list;
-	int n = world->chunks->length;
-	const int numBlocks = 64 * 64 * 64;
-
-	if (file != NULL)
-	{
-		for (int i = 0; i < n; i++)
-		{
-			Chunk* chunk = chunks[i];
-			SDL_LockMutex(chunk->mutex);
-
-			if (EnumHasFlag(chunk->flags, CHUNK_LOADED))
-			{
-				fwrite(chunk->coords, sizeof(int), 3, file);
-				fwrite(chunk->blocks, sizeof(char), numBlocks, file);
-			}
-
-			SDL_UnlockMutex(chunk->mutex);
-		}
-	}
-
-	SDL_UnlockMutex(world->mutex);
 }

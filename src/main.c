@@ -36,7 +36,7 @@ static int CodeDemo(void* threadData)
 	SDL_Delay(3000);
 
 	Memory mem = Memory_New(2048); // Create a virtual memory unit
-	vec3* vel = gs->shapes[0].models[0].vel; // Get a reference to the velocity of one of the objects
+	vec3* vel = (void*)(gs->shapes[0].models[0].vel); // Get a reference to the velocity of one of the objects
 	Device device = { .vel = vel };
 	Processor* proc = Processor_New(device, mem); // Create a virtual processor
 	gs->processorHalt = &(proc->halt); // this is so hacky
@@ -85,10 +85,9 @@ int main(int argc, char* argv[])
 	Camera cam;
 	NoiseMaker nm = { .initialized = false };
 	Progress prog = { .percent1 = 0, .percent2 = 0, .done = false };
-	World w = { .noiseMaker = &nm, .progress = &prog };
+	World w = { .noiseMaker = &nm, .progress = &prog, .folderPath = "res/world" };
 	GameState gs = { .world = &w, .cam = &cam, .progress = &prog };
 	gs.programFilePath = "res/code/example.temp";
-	gs.worldFilePath = "res/world/world.world";
 	InputState key = { .gravity = false, .running = true };
 
 	SDL_DetachThread(SDL_CreateThread(&CodeDemo, "Code Demo Thread", &gs));
@@ -99,7 +98,7 @@ int main(int argc, char* argv[])
 	}
 	else
 	{
-		printf("ERROR: Could not start game.");
+		printf("ERROR: Could not start game.\n");
 		return 1;
 	}
 

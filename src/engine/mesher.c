@@ -135,7 +135,7 @@ static void CalculateFaces(uint64_t* faceMasks, uint64_t blocks, Axis axis, int 
 	SetFaces(faceMasks, (2 * axis) + 1, plane, row, negFaces);
 }
 
-static inline ConvertAxisCoords(ivec3 coords, Axis axis, int column, int row, int plane)
+static inline void ConvertAxisCoords(ivec3 coords, Axis axis, int column, int row, int plane)
 {
 	switch (axis)
 	{
@@ -344,7 +344,7 @@ void Mesher_MeshWorld(World* world)
 
 				free(chunk->occupancy);
 				free(chunk->faceMasks);
-				EnumSetFlag(&chunk->flags, CHUNK_DIRTY, false);
+				EnumSetFlag((int*)(&chunk->flags), CHUNK_DIRTY, false);
 				SDL_UnlockMutex(chunk->mutex);
 
 				ticks = SDL_GetTicks() - ticks;

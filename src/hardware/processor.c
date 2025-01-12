@@ -137,7 +137,7 @@ static inline void Print(uword* r, uword* mem, Instruction instr)
 {
 	uword fp = r[REG_FRAME_PTR]; // args are on the stack, starting at the frame pointer
 	uword strptr = mem[fp]; // first arg is a pointer to the char array in virtual memory
-	char* arg1 = mem + strptr; // this is the pointer in real-life memory
+	char* arg1 = (void*)(mem + strptr); // this is the pointer in real-life memory
 	word arg2 = mem[fp + 1]; // second arg is an integer
 	printf(">>> %s %d\n", arg1, arg2);
 }
@@ -146,7 +146,7 @@ static inline void MoveObject(Processor* proc, Instruction instr)
 {
 	uword fp = proc->registers[REG_FRAME_PTR];
 	word arg = proc->memory.data[fp];
-	float* vel = proc->device.vel;
+	float* vel = (void*)(proc->device.vel);
 	const float dv = 0.5f;
 	glm_vec3_zero(vel);
 
@@ -167,7 +167,7 @@ void Processor_Run(Processor* p)
 {
 	const bool log = false;
 	p->halt = false;
-	uword* r = &(p->registers);
+	uword* r = &(p->registers[0]);
 	uword* mem = p->memory.data;
 
 	while (!p->halt && p->programCounter < p->memory.n)

@@ -396,6 +396,8 @@ static EX_Value CallFunction(RunContext* c, ST_Call call)
 		break;
 	case EXTF_MOVE:
 		break;
+	case EXTF_BREAK:
+		break;
 	default:
 		for (int i = 0; i < function->numStatements; i++)
 		{

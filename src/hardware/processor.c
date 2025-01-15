@@ -161,6 +161,13 @@ static inline void MoveObject(Processor* proc, Instruction instr)
 	}
 }
 
+static inline void BreakBlock(Processor* proc)
+{
+	void* worldData = proc->device.world;
+	float* pos = (void*)(proc->device.pos);
+	proc->device.funcBreakBlock(worldData, pos);
+}
+
 #pragma endregion
 
 void Processor_Run(Processor* p)
@@ -236,6 +243,11 @@ void Processor_Run(Processor* p)
 				case EXTCALL_MOVE:
 					if (log) printf("CALL move(%d)\n", mem[r[REG_FRAME_PTR]]);
 					MoveObject(p, instr);
+					r[REG_STACK_PTR] = r[REG_FRAME_PTR];
+					break;
+				case EXTCALL_BREAK:
+					if (log) printf("CALL break(%d)\n", mem[r[REG_FRAME_PTR]]);\
+					BreakBlock(p);
 					r[REG_STACK_PTR] = r[REG_FRAME_PTR];
 					break;
 				default:

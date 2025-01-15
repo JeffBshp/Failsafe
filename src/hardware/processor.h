@@ -60,6 +60,7 @@ typedef enum
 	EXTCALL_PRINT = 0,
 	EXTCALL_SLEEP,
 	EXTCALL_MOVE,
+	EXTCALL_BREAK,
 } OpCode;
 
 enum

@@ -86,6 +86,7 @@ typedef enum
 	EXTF_PRINT,
 	EXTF_SLEEP,
 	EXTF_MOVE,
+	EXTF_BREAK,
 } ExternalFunctionID;
 
 struct Function

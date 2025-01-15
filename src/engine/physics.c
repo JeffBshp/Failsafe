@@ -15,7 +15,7 @@ static void SolveElasticCollision(float ma, float mb, vec3 va, vec3 vb, vec3 vaF
 
 static void CollideWorldBounds(float origin, float* coord, float* vel, float radius)
 {
-	const float bound = 30.0f;
+	const float bound = 600.0f; // 30
 	const float maxVel = 80.0f;
 
 	if (*vel < -maxVel)
@@ -100,6 +100,7 @@ void Physics_Collide(Shape* shapes, int shapeC)
 			CollideWorldBounds(0, model->pos + 0, model->vel + 0, model->radius);
 			CollideWorldBounds(120, model->pos + 1, model->vel + 1, model->radius);
 			CollideWorldBounds(0, model->pos + 2, model->vel + 2, model->radius);
+
 			if (isinf(model->mass) || isnan(model->mass))
 				model->mass = 10.0f;
 		}

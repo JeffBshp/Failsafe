@@ -17,9 +17,12 @@ void moveTheBall(int time)()
 	move(4);		# 4 = right
 	sleep(time);
 	move(1);		# 1 = backward
-	sleep(time);
+	sleep(time * 2);
 	move(5);		# 5 = left
 	sleep(time);
+	move(2);		# 2 = up
+	sleep(1000);
+	break(0);
 }
 
 # One function needs to be named "main" for the program to run.
@@ -30,7 +33,7 @@ void main()(int localInt)
 	while (true)
 	{
 		print("Moving!", localInt);
-		moveTheBall(1000);
+		moveTheBall(100);
 		localInt = localInt + 1;
 	}
 }

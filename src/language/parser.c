@@ -132,7 +132,7 @@ static char* ReadIdentifier(Lexer* lex)
 		else
 			lex->status = LEX_INVALIDTOKEN;
 	}
-	
+
 	return identifier;
 }
 
@@ -368,7 +368,7 @@ static Expression* MakeBinaryExpression(OperationType op, Expression* left, Expr
 	o->isBinary = true;
 	o->a = left;
 	o->b = right;
-	
+
 	return e;
 }
 
@@ -499,11 +499,11 @@ static bool TryReadStatement(Lexer* lex, Statement* s)
 
 	if (tok.type == TOK_KEYWORD)
 		return TryReadKeywordStatement(lex, s);
-	
+
 	// TODO: Are there any statements that begin with a symbol?
 	if (tok.type == TOK_SYMBOL)
 		return false;
-	
+
 	if (tok.type == TOK_IDENTIFIER)
 		return TryReadIdentifierStatement(lex, s);
 
@@ -521,7 +521,7 @@ static void ParseFunction(Lexer* lex, Function* f)
 	f->rtype = ReadType(lex);
 
 	const Token mainKeyword = { .type = TOK_KEYWORD, .value = { .asKeyword = KW_MAIN } };
-	
+
 	if (TrySkipToken(lex, mainKeyword))
 	{
 		f->isMain = true;
@@ -566,7 +566,7 @@ SyntaxTree* Parser_ParseFile(char* filePath)
 	Function* functionPtr = functionBuffer;
 	Lexer* lex = Lexer_OpenFile(filePath);
 
-	ast->numFunctions = 3; // number of external functions
+	ast->numFunctions = 4; // number of external functions
 
 	// "print" function
 	Parameter* p = calloc(2, sizeof(Parameter));
@@ -583,6 +583,11 @@ SyntaxTree* Parser_ParseFile(char* filePath)
 	p = calloc(1, sizeof(Parameter));
 	p[0] = (Parameter){ .name = "direction", .type = DAT_INT };
 	AddExternalFunction(functionPtr++, "move", p, 1, EXTF_MOVE);
+
+	// "break" function
+	p = calloc(1, sizeof(Parameter));
+	p[0] = (Parameter){ .name = "direction", .type = DAT_INT }; // TODO: not used yet
+	AddExternalFunction(functionPtr++, "break", p, 1, EXTF_BREAK);
 
 	while (ast->numFunctions <= MAX_FUNCTIONS && HasToken(lex))
 	{

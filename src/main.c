@@ -30,14 +30,53 @@
 #include "hardware/memory.h"
 #include "hardware/processor.h"
 
+static void BreakBlock(void* worldData, float* coords)
+{
+	World* world = worldData;
+
+	// global block coords truncated to int
+	int gx = (int)floorf(coords[0]);
+	int gy = (int)floorf(coords[1] - 5.0f);
+	int gz = (int)floorf(coords[2]);
+
+	// This is just a proof of concept that the virtual program can interact with the game world
+	// by breaking blocks. Need to make it more accurately detect the nearest block.
+	// Currently it just tries to break several nearby blocks in a row.
+	for (int n = 0; n < 3; n++)
+	{
+		// coords OF the chunk
+		int cx = (gx - (gx < 0 ? 63 : 0)) / 64;
+		int cy = (gy - (gy < 0 ? 63 : 0)) / 64;
+		int cz = (gz - (gz < 0 ? 63 : 0)) / 64;
+
+		// local block coords IN the chunk
+		int lx = gx - (cx * 64);
+		int ly = gy - (cy * 64);
+		int lz = gz - (cz * 64);
+
+		Chunk* chunk = Treadmill3DGet(world->chunks, cx, cy, cz);
+
+		int i = (lz * 4096) + (ly * 64) + lx;
+		if (chunk->blocks[i] != BLOCK_AIR) printf("Breaking: offset %d type %d\n", n, chunk->blocks[i]);
+		chunk->blocks[i] = BLOCK_AIR;
+		chunk->flags |= CHUNK_DIRTY; // TODO: race condition
+
+		gy--; // try the next block below
+	}
+
+	world->dirty = true;
+}
+
 static int CodeDemo(void* threadData)
 {
 	GameState* gs = threadData;
 	SDL_Delay(3000);
 
 	Memory mem = Memory_New(2048); // Create a virtual memory unit
-	vec3* vel = (void*)(gs->shapes[0].models[0].vel); // Get a reference to the velocity of one of the objects
-	Device device = { .vel = vel };
+	// Get a reference to the position and velocity of one of the objects
+	vec3* pos = (void*)(gs->shapes[0].models[0].pos);
+	vec3* vel = (void*)(gs->shapes[0].models[0].vel);
+	Device device = { .world = gs->world, .funcBreakBlock = BreakBlock, .pos = pos, .vel = vel };
 	Processor* proc = Processor_New(device, mem); // Create a virtual processor
 	gs->processorHalt = &(proc->halt); // this is so hacky
 

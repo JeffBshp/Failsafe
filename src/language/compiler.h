@@ -27,6 +27,7 @@ typedef enum
 	COMPILE_BRANCHTOOFAR, // too many instructions inside a loop or conditional body to skip over with a branch instruction
 	COMPILE_INVALIDARG, // function argument has wrong type, or function called with wrong number of args
 	COMPILE_INVALIDSTMT, // invalid statement type (somehow)
+	COMPILE_NOMAIN, // no main function defined
 	COMPILE_MAINREDEFINED, // main function defined more than once
 	COMPILE_NOTIMPLEMENTED, // feature has not been implemented
 } CompileStatus;

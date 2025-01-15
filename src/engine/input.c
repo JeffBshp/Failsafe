@@ -53,7 +53,7 @@ static bool DDA(Chunk* chunk, vec3 a, vec3 move, vec3 block, int maxSteps)
 	double x = a[0];
 	double y = a[1];
 	double z = a[2];
-	
+
 	double dx = fabs(move[0]);
 	double dy = fabs(move[1]);
 	double dz = fabs(move[2]);
@@ -167,39 +167,40 @@ static void CheckChunks(GameState* gs)
 }
 
 // TODO: misses collisions when crossing chunk boundaries
-static void CameraCollideVoxels(World* world, Camera* cam)
+static void CollideVoxels(World* world, float* pos, float* vel)
 {
-	float cx = cam->pos[0];
-	float cy = cam->pos[1];
-	float cz = cam->pos[2];
-	float vx = cam->vel[0];
-	float vy = cam->vel[1];
-	float vz = cam->vel[2];
+	float cx = pos[0];
+	float cy = pos[1];
+	float cz = pos[2];
+	float vx = vel[0];
+	float vy = vel[1];
+	float vz = vel[2];
 	float ox = vx > 0 ? 0.3 : -0.3;
 	float oz = vz > 0 ? 0.3 : -0.3;
+	const float oy = 9.4f; // previously 1.4f, now floating several spaces up for better visibility
 
-	vec3* posToTest = (void*)((vec3){ cx, cy - 1.4f, cz });
+	vec3* posToTest = (void*)((vec3){ cx, cy - oy, cz });
 	if (IsSolidBlock(world, *posToTest))
 	{
-		cy = floorf(cy - 1.4f) + 2.3f;
-		cam->pos[1] = cy;
-		cam->vel[1] = 0;
+		cy = floorf(cy - oy) + oy + 0.9f;
+		pos[1] = cy;
+		vel[1] = 0;
 	}
 
 	posToTest = (void*)((vec3){ cx + ox + ox, cy - 1.1f, cz });
 	if (IsSolidBlock(world, *posToTest))
 	{
 		cx = floorf(cx + ox + ox) - ox + (vx > 0 ? 0 : 1.0f);
-		cam->pos[0] = cx;
-		cam->vel[0] = 0;
+		pos[0] = cx;
+		vel[0] = 0;
 	}
 
 	posToTest = (void*)((vec3){ cx, cy - 1.1f, cz + oz + oz });
 	if (IsSolidBlock(world, *posToTest))
 	{
 		cz = floorf(cz + oz + oz) - oz + (vz > 0 ? 0 : 1.0f);
-		cam->pos[2] = cz;
-		cam->vel[2] = 0;
+		pos[2] = cz;
+		vel[2] = 0;
 	}
 }
 
@@ -228,7 +229,7 @@ void Input_Update(InputState* key, GameState* gs)
 		// move the camera with wsad/space/lshift
 		vec3 move, blockPos;
 		GetMoveVector(gs->cam, move, key->space, key->lshift, key->a, key->d, key->w, key->s);
-		
+
 		float accel = 6.0f;
 		if (key->gravity)
 		{
@@ -239,9 +240,9 @@ void Input_Update(InputState* key, GameState* gs)
 		glm_vec3_scale(move, accel * deltaTime, move); // scale acceleration by dt
 		glm_vec3_add(gs->cam->vel, move, gs->cam->vel); // apply acceleration to velocity
 		glm_vec3_scale(gs->cam->vel, 0.9f, gs->cam->vel); // scale down for pseudo-drag
-		if (key->gravity) CameraCollideVoxels(gs->world, gs->cam); // avoid flying through blocks
+		if (key->gravity) CollideVoxels(gs->world, gs->cam->pos, gs->cam->vel); // avoid flying through blocks
 		glm_vec3_add(gs->cam->pos, gs->cam->vel, gs->cam->pos); // apply velocity to position
-		
+
 		// prevent falling into the abyss
 		if (gs->cam->pos[1] < -1000.0f)
 		{
@@ -267,6 +268,8 @@ void Input_Update(InputState* key, GameState* gs)
 			if (model->isFixed) continue;
 
 			// update velocity and position
+			float dy = -1.6f * 3.0f * deltaTime;
+			if (key->gravity) model->vel[1]+= dy;
 			float f = 1.0f - (1.0f / (model->mass * 2.0f));
 			glm_vec3_scale(model->vel, f, model->vel);			// apply drag
 			glm_vec3_add(model->pos, model->vel, model->pos);	// move the object
@@ -275,6 +278,8 @@ void Input_Update(InputState* key, GameState* gs)
 			model->rot[0] += 0.1 * deltaTime;
 			model->rot[1] += 0.2 * deltaTime;
 			model->rot[2] += 0.3 * deltaTime;
+
+			if (key->gravity) CollideVoxels(gs->world, model->pos, model->vel);
 		}
 	}
 

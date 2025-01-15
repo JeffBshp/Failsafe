@@ -59,7 +59,7 @@ static int FindVar(CompileContext* c, char* name, Parameter* p)
 		i = FindParam(name, f->locals, f->numLocals, p);
 		if (i >= 0) i += f->numParams;
 	}
-	
+
 	return i;
 }
 
@@ -744,7 +744,7 @@ static bool CompileFunction(CompileContext* c)
 		c->status = COMPILE_TOOMANYVARS;
 		return false;
 	}
-	
+
 	if (f->isMain)
 	{
 		if (c->mainAddress < 0)
@@ -843,6 +843,8 @@ Program* Compiler_GenerateCode(SyntaxTree* ast)
 	{
 		if (!CompileFunction(c)) break;
 	}
+
+	if (c->mainAddress < 0) c->status = COMPILE_NOMAIN;
 
 	program->status = c->status;
 

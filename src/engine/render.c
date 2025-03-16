@@ -32,7 +32,7 @@ static void LoadTextureArray(GLuint texture, const char* filePath, int nCols, in
 
 	glBindTexture(GL_TEXTURE_2D_ARRAY, texture);
 	glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA, tWidth, tHeight, nTiles, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-	
+
 	int tBytes = 4 * tWidth * tHeight;
 	unsigned char* buffer = malloc(tBytes * sizeof(unsigned char));
 
@@ -317,7 +317,7 @@ static int InitGameContent(void* threadData)
 	gs->currentModel = gs->shapes[0].models + 2;
 	gs->shapes[0].instanceData[17 * 2] = TEX_BLUE;
 	printf("Created shapes.\n");
-	
+
 	gs->progress->done = true;
 	printf("Thread complete.\n");
 	return 0;
@@ -440,7 +440,7 @@ void Render_Destroy(GameState* gs)
 	glDeleteTextures(gs->numTextures, gs->textures);
 	glDeleteProgram(gs->basicShader);
 	free(gs->VAO); // also frees VBO, IBO, EBO, textures, and shapes
-	
+
 	SDL_GL_DeleteContext(gs->glContext);
 	SDL_DestroyWindow(gs->window);
 

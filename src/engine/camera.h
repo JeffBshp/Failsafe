@@ -5,6 +5,7 @@
 typedef struct
 {
 	vec3 pos;
+	vec3 width;
 	vec3 vel;
 	vec3 look;
 	vec3 up;
@@ -14,9 +15,6 @@ typedef struct
 } Camera;
 
 void Camera_Init(Camera* c);
-
 void Camera_GetViewMatrix(Camera* c, mat4 m);
-
 void Camera_Move(Camera* c, vec3 move);
-
 void Camera_UpdateVectors(Camera* c);

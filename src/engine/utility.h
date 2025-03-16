@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "cglm/cglm.h"
 
 #define PROGRESS_MSG_LEN 40
 
@@ -108,6 +109,7 @@ void ListUInt64Insert(ListUInt64* list, uint64_t value);
 void ListUInt64RemoveAt(ListUInt64* list, size_t index);
 uint64_t ListUInt64Pop(ListUInt64* list);
 void ProgressPrint(char* text, size_t n, Progress* prog);
+void GetIntCoords(vec3 fPos, ivec3 iPos);
 
 Treadmill3D* Treadmill3DNew(Treadmill3DLoader loader, TreadmillUnloader unloader, void* loaderObj, int radius);
 void* Treadmill3DGet(Treadmill3D* t, int x, int y, int z);

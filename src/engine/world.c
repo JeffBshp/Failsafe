@@ -269,3 +269,54 @@ void World_Init(World* world)
 	ticks = SDL_GetTicks() - ticks;
 	printf("World init took %d ms.\n", ticks);
 }
+
+// Returns the chunk at wPos (world position), and fills in cPos (chunk position) with the local chunk coords.
+Chunk* World_GetChunkAndCoords(World* world, ivec3 wPos, ivec3 cPos)
+{
+	// coords of the chunk relative to other chunks
+	int cx = (wPos[0] - (wPos[0] < 0 ? 63 : 0)) / 64;
+	int cy = (wPos[1] - (wPos[1] < 0 ? 63 : 0)) / 64;
+	int cz = (wPos[2] - (wPos[2] < 0 ? 63 : 0)) / 64;
+
+	// local coords within the chunk
+	cPos[0] = wPos[0] - (cx * 64);
+	cPos[1] = wPos[1] - (cy * 64);
+	cPos[2] = wPos[2] - (cz * 64);
+
+	return Treadmill3DGet(world->chunks, cx, cy, cz);
+}
+
+unsigned char World_GetBlock(Chunk* chunk, ivec3 pos)
+{
+	int x = pos[0];
+	int y = pos[1];
+	int z = pos[2];
+
+	if (x < 0 || x > 63 || y < 0 || y > 63 || z < 0 || z > 63)
+		return 0;
+
+	int i = (z * 64 * 64) + (y * 64) + x;
+
+	return chunk->blocks[i];
+}
+
+bool World_IsSolidBlock(World* world, ivec3 pos)
+{
+	ivec3 cPos;
+	Chunk* chunk = World_GetChunkAndCoords(world, pos, cPos);
+	if (chunk == NULL) return false;
+	return World_GetBlock(chunk, cPos) != 0;
+}
+
+void World_SetBlock(World* world, ivec3 pos, unsigned char type)
+{
+	ivec3 cPos;
+	Chunk* chunk = World_GetChunkAndCoords(world, pos, cPos);
+
+	if (chunk != NULL)
+	{
+		SetBlock(chunk, cPos[0], cPos[1], cPos[2], type);
+		chunk->flags |= CHUNK_DIRTY;
+		world->dirty = true;
+	}
+}

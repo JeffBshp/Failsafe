@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
 #include <math.h>
@@ -9,109 +10,8 @@
 #include "physics.h"
 #include "editor.h"
 #include "mesher.h"
-
-static Chunk* WorldToChunkCoords(World* world, vec3 wPos, vec3 cPos)
-{
-	int x = (int)floorf(wPos[0]);
-	int y = (int)floorf(wPos[1]);
-	int z = (int)floorf(wPos[2]);
-
-	int cx = (x - (x < 0 ? 63 : 0)) / 64;
-	int cy = (y - (y < 0 ? 63 : 0)) / 64;
-	int cz = (z - (z < 0 ? 63 : 0)) / 64;
-
-	cPos[0] = x - (cx * 64);
-	cPos[1] = y - (cy * 64);
-	cPos[2] = z - (cz * 64);
-
-	return Treadmill3DGet(world->chunks, cx, cy, cz);
-}
-
-static unsigned char GetBlock(Chunk* chunk, vec3 pos)
-{
-	int x = floorf(pos[0]);
-	int y = floorf(pos[1]);
-	int z = floorf(pos[2]);
-
-	if (x < 0 || x > 63 || y < 0 || y > 63 || z < 0 || z > 63)
-		return 0;
-
-	int i = (z * 64 * 64) + (y * 64) + x;
-	return chunk->blocks[i];
-}
-
-static bool IsSolidBlock(World* world, vec3 pos)
-{
-	vec3 cPos;
-	Chunk* chunk = WorldToChunkCoords(world, pos, cPos);
-	if (chunk == NULL) return false;
-	return GetBlock(chunk, cPos) != 0;
-}
-
-static bool DDA(Chunk* chunk, vec3 a, vec3 move, vec3 block, int maxSteps)
-{
-	double x = a[0];
-	double y = a[1];
-	double z = a[2];
-
-	double dx = fabs(move[0]);
-	double dy = fabs(move[1]);
-	double dz = fabs(move[2]);
-
-	if (dx == 0 && dy == 0 && dz == 0) return false;
-
-	int step = 0;
-	int stepX = move[0] < 0 ? -1 : 1;
-	int stepY = move[1] < 0 ? -1 : 1;
-	int stepZ = move[2] < 0 ? -1 : 1;
-
-	double remX = fabs(floor(x + stepX) - x);
-	double remY = fabs(floor(y + stepY) - y);
-	double remZ = fabs(floor(z + stepZ) - z);
-
-	if (remX >= 1.0) remX -= 1.0;
-	if (remY >= 1.0) remY -= 1.0;
-	if (remZ >= 1.0) remZ -= 1.0;
-
-	double hypotenuse = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
-
-	// distance along ray per x/y/z unit
-	double tDeltaX = dx == 0 ? DBL_MAX : hypotenuse / dx;
-	double tDeltaY = dy == 0 ? DBL_MAX : hypotenuse / dy;
-	double tDeltaZ = dz == 0 ? DBL_MAX : hypotenuse / dz;
-
-	double tMaxX = dx == 0 ? DBL_MAX : remX * tDeltaX;
-	double tMaxY = dy == 0 ? DBL_MAX : remY * tDeltaY;
-	double tMaxZ = dz == 0 ? DBL_MAX : remZ * tDeltaZ;
-
-	while (step < maxSteps)
-	{
-		block[0] = x;
-		block[1] = y;
-		block[2] = z;
-		unsigned char blockType = GetBlock(chunk, block);
-
-		if (blockType != 0 && blockType != 7)
-		{
-			return true;
-		}
-
-		if (tMaxX < tMaxY && tMaxX < tMaxZ) {
-			x += stepX;
-			tMaxX += tDeltaX;
-		} else if (tMaxY < tMaxZ) {
-			y += stepY;
-			tMaxY += tDeltaY;
-		} else {
-			z += stepZ;
-			tMaxZ += tDeltaZ;
-		}
-
-		step++;
-	}
-
-	return false;
-}
+#include "world.h"
+#include "utility.h"
 
 // gets a unit-vector based on directional keyboard keys, relative to the camera's direction
 static void GetMoveVector(Camera* cam, vec3 dest, bool up, bool down, bool left, bool right, bool fwd, bool back)
@@ -166,44 +66,6 @@ static void CheckChunks(GameState* gs)
 	}
 }
 
-// TODO: misses collisions when crossing chunk boundaries
-static void CollideVoxels(World* world, float* pos, float* vel)
-{
-	float cx = pos[0];
-	float cy = pos[1];
-	float cz = pos[2];
-	float vx = vel[0];
-	float vy = vel[1];
-	float vz = vel[2];
-	float ox = vx > 0 ? 0.3 : -0.3;
-	float oz = vz > 0 ? 0.3 : -0.3;
-	const float oy = 9.4f; // previously 1.4f, now floating several spaces up for better visibility
-
-	vec3* posToTest = (void*)((vec3){ cx, cy - oy, cz });
-	if (IsSolidBlock(world, *posToTest))
-	{
-		cy = floorf(cy - oy) + oy + 0.9f;
-		pos[1] = cy;
-		vel[1] = 0;
-	}
-
-	posToTest = (void*)((vec3){ cx + ox + ox, cy - 1.1f, cz });
-	if (IsSolidBlock(world, *posToTest))
-	{
-		cx = floorf(cx + ox + ox) - ox + (vx > 0 ? 0 : 1.0f);
-		pos[0] = cx;
-		vel[0] = 0;
-	}
-
-	posToTest = (void*)((vec3){ cx, cy - 1.1f, cz + oz + oz });
-	if (IsSolidBlock(world, *posToTest))
-	{
-		cz = floorf(cz + oz + oz) - oz + (vz > 0 ? 0 : 1.0f);
-		pos[2] = cz;
-		vel[2] = 0;
-	}
-}
-
 void Input_Update(InputState* key, GameState* gs)
 {
 	Uint32 ticks = SDL_GetTicks();
@@ -227,7 +89,7 @@ void Input_Update(InputState* key, GameState* gs)
 	if (!gs->textBox->focused)
 	{
 		// move the camera with wsad/space/lshift
-		vec3 move, blockPos;
+		vec3 move;
 		GetMoveVector(gs->cam, move, key->space, key->lshift, key->a, key->d, key->w, key->s);
 
 		float accel = 6.0f;
@@ -240,8 +102,16 @@ void Input_Update(InputState* key, GameState* gs)
 		glm_vec3_scale(move, accel * deltaTime, move); // scale acceleration by dt
 		glm_vec3_add(gs->cam->vel, move, gs->cam->vel); // apply acceleration to velocity
 		glm_vec3_scale(gs->cam->vel, 0.9f, gs->cam->vel); // scale down for pseudo-drag
-		if (key->gravity) CollideVoxels(gs->world, gs->cam->pos, gs->cam->vel); // avoid flying through blocks
-		glm_vec3_add(gs->cam->pos, gs->cam->vel, gs->cam->pos); // apply velocity to position
+
+		// round small velocities to zero
+		if (fabsf(gs->cam->vel[0]) < 0.001f) gs->cam->vel[0] = 0.0f;
+		if (fabsf(gs->cam->vel[1]) < 0.001f) gs->cam->vel[1] = 0.0f;
+		if (fabsf(gs->cam->vel[2]) < 0.001f) gs->cam->vel[2] = 0.0f;
+
+		if (key->gravity)
+			Physics_MoveAabbThroughVoxels(gs->world, gs->cam->pos, gs->cam->width, gs->cam->vel);
+		else
+			glm_vec3_add(gs->cam->pos, gs->cam->vel, gs->cam->pos);
 
 		// prevent falling into the abyss
 		if (gs->cam->pos[1] < -1000.0f)
@@ -268,23 +138,42 @@ void Input_Update(InputState* key, GameState* gs)
 			if (model->isFixed) continue;
 
 			// update velocity and position
-			float dy = -1.6f * 3.0f * deltaTime;
+			float dy = -1.6f * 1.0f * deltaTime;
 			if (key->gravity) model->vel[1]+= dy;
 			float f = 1.0f - (1.0f / (model->mass * 2.0f));
 			glm_vec3_scale(model->vel, f, model->vel);			// apply drag
-			glm_vec3_add(model->pos, model->vel, model->pos);	// move the object
+			if (key->gravity)
+			{
+				vec3 width;
+				width[0] = width[1] = width[2] = model->radius * 2.0f;
+				Physics_MoveAabbThroughVoxels(gs->world, model->pos, width, model->vel);
+			}
+			else
+			{
+				glm_vec3_add(model->pos, model->vel, model->pos);
+			}
 
 			// rotate over time
 			model->rot[0] += 0.1 * deltaTime;
 			model->rot[1] += 0.2 * deltaTime;
 			model->rot[2] += 0.3 * deltaTime;
-
-			if (key->gravity) CollideVoxels(gs->world, model->pos, model->vel);
 		}
 	}
 
+	vec3 camPos;
+	ivec3 camLocal;
+	camPos[0] = gs->cam->pos[0] - (gs->cam->width[0] / 2.0f);
+	camPos[1] = gs->cam->pos[1] - (gs->cam->width[1] / 2.0f);
+	camPos[2] = gs->cam->pos[2] - (gs->cam->width[2] / 2.0f);
+	GetIntCoords(camPos, camLocal);
+	Chunk* chunk = World_GetChunkAndCoords(gs->world, camLocal, camLocal);
+
 	snprintf(gs->loadingTextBox->text, gs->loadingTextBox->nCols * gs->loadingTextBox->nRows,
-		"(%.1f, %.1f, %.1f)", gs->cam->pos[0], gs->cam->pos[1], gs->cam->pos[2]);
+		"Chunk  (%5d, %5d, %5d  )\nLocal  (%5d, %5d, %5d  )\nGlobal (  %5.1f, %5.1f, %5.1f)\nVel    (  %5.1f, %5.1f, %5.1f)",
+		chunk->coords[0], chunk->coords[1], chunk->coords[2],
+		camLocal[0], camLocal[1], camLocal[2],
+		camPos[0], camPos[1], camPos[2],
+		gs->cam->vel[0], gs->cam->vel[1], gs->cam->vel[2]);
 
 	Physics_Collide(gs->shapes, gs->numShapes);
 	Editor_Update(gs->textBox, ticks);
@@ -322,8 +211,10 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 
 	// easier way to release the mouse than Alt+Tab
 	case SDLK_BACKQUOTE:
-		SDL_SetWindowGrab(gs->window, SDL_FALSE);
-		SDL_MinimizeWindow(gs->window);
+		SDL_bool currentMode = SDL_GetRelativeMouseMode();
+		SDL_SetRelativeMouseMode(currentMode == SDL_FALSE ? SDL_TRUE : SDL_FALSE);
+		//SDL_SetWindowGrab(gs->window, SDL_FALSE);
+		//SDL_MinimizeWindow(gs->window);
 		break;
 
 	case SDLK_w:
@@ -430,7 +321,7 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 		if (key->gravity)
 		{
 			gs->cam->pos[1] += 0.2;
-			gs->cam->vel[1] += 1.2;
+			gs->cam->vel[1] = 1.2;
 		}
 		break;
 	case SDLK_LSHIFT:
@@ -558,12 +449,14 @@ static void HandleMouseMotion(SDL_MouseMotionEvent e, GameState* gs)
 
 static void HandleMouseDown(SDL_MouseButtonEvent e, GameState* gs)
 {
-	vec3 blockPos;
+	ivec3 wPos;
 
 	switch (e.button)
 	{
 	case 1:
-		DDA(Treadmill3DGet(gs->world->chunks, 0, 0, 0), gs->cam->pos, gs->cam->front, blockPos, 50);
+		GetIntCoords(gs->cam->pos, wPos);
+		wPos[1] -= (gs->cam->width[1] / 2);
+		World_SetBlock(gs->world, wPos, BLOCK_WOOD);
 		Mesher_MeshWorld(gs->world);
 		gs->buffer = true;
 		break;

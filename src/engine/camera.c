@@ -6,6 +6,9 @@ void Camera_Init(Camera* c)
 	c->pos[0] = -50.0f;
 	c->pos[1] = 130.0f;
 	c->pos[2] = 0.0f;
+	c->width[0] = 0.6f;
+	c->width[1] = 5.8f;
+	c->width[2] = 0.6f;
 	glm_vec3_zero(c->vel);
 	glm_vec3_zero(c->look);
 	glm_vec3_zero(c->up);
@@ -36,10 +39,10 @@ void Camera_UpdateVectors(Camera* c)
 	c->front[0] = cos(glm_rad(c->rot[0])) * cos(glm_rad(c->rot[1]));
 	c->front[1] = sin(glm_rad(c->rot[1]));
 	c->front[2] = sin(glm_rad(c->rot[0])) * cos(glm_rad(c->rot[1]));
-	
+
 	// the look vector is the position + front
 	glm_vec3_add(c->pos, c->front, c->look);
-	
+
 	// reset the up vector
 	c->up[0] = 0.0f;
 	c->up[1] = 1.0f;

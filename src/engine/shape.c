@@ -20,7 +20,7 @@ static void MakeShape(Shape* shape, GLfloat* vertices, size_t numBytesVertices, 
 	shape->vertices = malloc(numBytesVertices + numBytesIndices);
 	shape->numVertices = numBytesVertices / sizeof(vertices[0]);
 	memcpy(shape->vertices, vertices, numBytesVertices);
-	
+
 	shape->indices = (void*)(shape->vertices + shape->numVertices);
 	shape->numIndices = numBytesIndices / sizeof(indices[0]);
 	memcpy(shape->indices, indices, numBytesIndices);
@@ -121,7 +121,7 @@ void Shape_MakePlane(Shape* shape)
 	};
 
 	MakeShape(shape, vertices, sizeof(vertices), indices, sizeof(indices), 5, 90.0f, 0.0f, 0.0f);
-	
+
 	InitPlane(shape, 0, TEX_GRAY, 0, 90, 0, 0, 90, 0);
 	InitPlane(shape, 1, TEX_GRAY, -90, 0, 0, 0, 120, 30);
 	InitPlane(shape, 2, TEX_GRAY, 180, -90, 0, 0, 150, 0);
@@ -480,7 +480,13 @@ void Shape_MakeSphere(Shape* shape, int numModels)
 		89, 90, 97,		90, 91, 97,		91, 92, 97,		92, 93, 97,		93, 94, 97,		94, 95, 97,		95, 96, 97,		96, 89, 97
 	};
 
-	MakeShape(shape, vertices, sizeof(vertices), indices, sizeof(indices), numModels, 130.0f, 50.0f, 2.0f);
+	MakeShape(shape, vertices, sizeof(vertices), indices, sizeof(indices), numModels, 130.0f, 50.0f, 0.5f);
+
+	for (int i = 0; i < numModels; i++)
+	{
+		Model* model = shape->models + i;
+		model->scale *= 0.25;
+	}
 }
 
 void Shape_MakeFixedSpheres(Shape* shape, int numModels)

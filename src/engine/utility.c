@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "utility.h"
+#include "cglm/cglm.h"
 
 // Returns true if `flags` has the bit(s) specified by `flag`.
 bool EnumHasFlag(int flags, int flag)
@@ -62,6 +63,14 @@ void ProgressPrint(char* text, size_t n, Progress* prog)
 {
 	snprintf(text, n, "%s%.1f%%\n%s%.1f%%\n",
 		prog->message1, prog->percent1, prog->message2, prog->percent2);
+}
+
+// truncates vec3 to ivec3
+void GetIntCoords(vec3 fPos, ivec3 iPos)
+{
+	iPos[0] = (int)floorf(fPos[0]);
+	iPos[1] = (int)floorf(fPos[1]);
+	iPos[2] = (int)floorf(fPos[2]);
 }
 
 static inline bool CheckCubeBounds(int x, int y, int z, int max)

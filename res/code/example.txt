@@ -8,24 +8,25 @@
 # This is a program that runs inside the game. Eventually you'll
 # be able to control robots that move, collect, and build things.
 # For now, all this virtual program does is move a ball around.
+# Turn on gravity with G and then press Enter to run the program!
 
-# This function moves a ball in a square, with some delays.
+# This function moves the ball and tries to break blocks.
 void moveTheBall(int time)()
 {
-	move(0);		# 0 = forward
+	# 0=forward, 1=backward, 2=up, 3=down, 4=right, 5=left
+	move(2);
 	sleep(time);
-	move(4);		# 4 = right
+	move(2);
 	sleep(time);
-	move(1);		# 1 = backward
-	sleep(time * 2);
-	move(5);		# 5 = left
+	move(2);
 	sleep(time);
-	move(2);		# 2 = up
-	sleep(1000);
+	move(1);
+	sleep(10 * time);
 	break(0);
 }
 
 # One function needs to be named "main" for the program to run.
+# Local variables have to be declared in the 2nd parentheses.
 void main()(int localInt)
 {
 	localInt = 0;
@@ -33,7 +34,7 @@ void main()(int localInt)
 	while (true)
 	{
 		print("Moving!", localInt);
-		moveTheBall(100);
+		moveTheBall(200);
 		localInt = localInt + 1;
 	}
 }

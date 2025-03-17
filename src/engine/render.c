@@ -309,14 +309,14 @@ bool Render_Init(GameState* gs)
 	size_t n = ReadProgramFile(initialText, 5000);
 	initialText[n] = '\0';
 	int nCols = 75, nRows = 50;
-	gs->textBox = Shape_MakeTextBox(gs->shapes + 2, nCols, nRows, true, initialText);
-	gs->textBox->i = n - 1;
+	gs->codeTextBox = Shape_MakeTextBox(gs->shapes + 2, nCols, nRows, true, initialText);
+	gs->codeTextBox->i = n - 1;
 	gs->currentModel = gs->shapes[0].models + 2;
 	gs->shapes[0].instanceData[17 * 2] = TEX_BLUE;
 	nCols = 60; nRows = 10;
-	gs->loadingTextBox = Shape_MakeTextBox(gs->shapes + 3, nCols, nRows, false, NULL);
-	gs->loadingTextBox->texOffset = TEX_SET2;
-	glm_translate((void*)(gs->loadingTextBox->shape->groupMat), (vec3) { 30.0f, 0.0f, -30.0f });
+	gs->hudTextBox = Shape_MakeTextBox(gs->shapes + 3, nCols, nRows, false, NULL);
+	gs->hudTextBox->texOffset = TEX_SET2;
+	glm_translate((void*)(gs->hudTextBox->shape->groupMat), (vec3) { 30.0f, 0.0f, -30.0f });
 	printf("Created shapes.\n");
 
 	// generate IDs for the Vertex Array Objects
@@ -339,7 +339,8 @@ void Render_Destroy(GameState* gs)
 
 	gs->world->alive = false;
 
-	Shape_FreeTextBox(gs->textBox);
+	Shape_FreeTextBox(gs->codeTextBox);
+	Shape_FreeTextBox(gs->hudTextBox);
 
 	for (int i = 0; i < gs->numShapes; i++)
 	{

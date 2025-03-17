@@ -42,8 +42,8 @@ typedef struct
 	bool runProgram;
 	bool* processorHalt;
 	char* programFilePath;
-	TextBox* textBox;
-	TextBox* loadingTextBox;
+	TextBox* codeTextBox;
+	TextBox* hudTextBox;
 	Progress* progress;
 } GameState;
 

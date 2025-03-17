@@ -99,7 +99,7 @@ static void ReadWord(Lexer* lex)
 		// copy the string to the other buffer
 		strncpy(lex->subbuffer, lex->buffer + start, n);
 		lex->subbuffer[n] = '\0';
-		
+
 		// treat it as an identifier by default
 		lex->token.type = TOK_IDENTIFIER;
 		lex->token.value.asString = lex->subbuffer;

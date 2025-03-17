@@ -81,13 +81,13 @@ uword Memory_Allocate(Memory mem, uword size)
 			mem.data[start - 3] = prev;
 			mem.data[start - 2] = next;
 			mem.data[start - 1] = size;
-			
+
 			// Link the next one to the new one
 			if (next > 3) mem.data[next - 3] = start;
-			
+
 			return start;
 		}
-		
+
 		if (next == 0 || next <= prev) break; // out of memory, or memory corrupted
 
 		prev = next;

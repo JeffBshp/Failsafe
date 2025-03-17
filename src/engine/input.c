@@ -87,7 +87,7 @@ void Input_Update(InputState* key, GameState* gs)
 	}
 
 	// controls and camera movement
-	if (!gs->textBox->focused)
+	if (!gs->codeTextBox->focused)
 	{
 		// move the camera with wsad/space/lshift
 		vec3 move;
@@ -169,7 +169,7 @@ void Input_Update(InputState* key, GameState* gs)
 	GetIntCoords(camPos, camLocal);
 	Chunk* chunk = World_GetChunkAndCoords(gs->world, camLocal, camLocal);
 
-	snprintf(gs->loadingTextBox->text, gs->loadingTextBox->nCols * gs->loadingTextBox->nRows,
+	snprintf(gs->hudTextBox->text, gs->hudTextBox->nCols * gs->hudTextBox->nRows,
 		"Chunk  (%5d, %5d, %5d  )\nLocal  (%5d, %5d, %5d  )\nGlobal (  %5.1f, %5.1f, %5.1f)\nVel    (  %5.1f, %5.1f, %5.1f)",
 		chunk->coords[0], chunk->coords[1], chunk->coords[2],
 		camLocal[0], camLocal[1], camLocal[2],
@@ -177,8 +177,8 @@ void Input_Update(InputState* key, GameState* gs)
 		gs->cam->vel[0], gs->cam->vel[1], gs->cam->vel[2]);
 
 	Physics_Collide(gs->shapes, gs->numShapes);
-	Editor_Update(gs->textBox, ticks);
-	Editor_Update(gs->loadingTextBox, ticks);
+	Editor_Update(gs->codeTextBox, ticks);
+	Editor_Update(gs->hudTextBox, ticks);
 	Camera_UpdateVectors(gs->cam);
 	CheckChunks(gs);
 }
@@ -223,8 +223,8 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 	switch (sym)
 	{
 	case SDLK_ESCAPE:
-		if (gs->textBox->focused)
-			gs->textBox->focused = false;
+		if (gs->codeTextBox->focused)
+			gs->codeTextBox->focused = false;
 		else
 			key->running = false;
 		break;
@@ -362,7 +362,7 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 
 	case SDLK_LALT:
 	case SDLK_RALT:
-		gs->textBox->focused = !gs->textBox->focused;
+		gs->codeTextBox->focused = !gs->codeTextBox->focused;
 		break;
 	}
 }
@@ -506,11 +506,11 @@ void Input_HandleInput(InputState* key, GameState* gs)
 		case SDL_KEYDOWN:
 			if (ev.key.repeat == 0)
 			{
-				if (gs->textBox->focused)
+				if (gs->codeTextBox->focused)
 					if (ev.key.keysym.sym == SDLK_ESCAPE || ev.key.keysym.sym == SDLK_LALT || ev.key.keysym.sym == SDLK_RALT)
-						gs->textBox->focused = false;
+						gs->codeTextBox->focused = false;
 					else
-						Editor_Edit(gs->textBox, ev.key.keysym);
+						Editor_Edit(gs->codeTextBox, ev.key.keysym);
 				else
 					HandleKeyDown(key, gs, ev.key.keysym.sym);
 			}

@@ -12,6 +12,7 @@
 #include "cglm/cglm.h"
 #include "utility.h"
 #include "world.h"
+#include "compress.h"
 
 static inline void SetBlock(Chunk* chunk, int x, int y, int z, unsigned char type)
 {
@@ -107,8 +108,11 @@ static void SaveChunk(Chunk* chunk)
 
 	if (file != NULL)
 	{
-		fwrite(chunk->blocks, sizeof(char), numBlocks, file);
+		RleChunk rle = Compress_Chunk(chunk);
+		fwrite(&rle.n, sizeof(uint32_t), 1, file);
+		fwrite(rle.runs, sizeof(RleRun), rle.n, file);
 		fclose(file);
+		free(rle.runs);
 	}
 
 	SDL_UnlockMutex(chunk->mutex);
@@ -134,9 +138,14 @@ static void LoadChunk(Chunk* chunk)
 	}
 	else
 	{
-		fread(chunk->blocks, sizeof(char), numBlocks, file);
+		RleChunk rle;
+		fread(&rle.n, sizeof(uint32_t), 1, file);
+		rle.runs = malloc(rle.n * sizeof(RleRun));
+		fread(rle.runs, sizeof(RleRun), rle.n, file);
 		fclose(file);
+		Decompress_Chunk(chunk, rle);
 		SDL_UnlockMutex(chunk->mutex);
+		free(rle.runs);
 	}
 
 	// chunk is loaded and ready to mesh

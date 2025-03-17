@@ -12,6 +12,7 @@
 #include "mesher.h"
 #include "world.h"
 #include "utility.h"
+#include "compress.h"
 
 // gets a unit-vector based on directional keyboard keys, relative to the camera's direction
 static void GetMoveVector(Camera* cam, vec3 dest, bool up, bool down, bool left, bool right, bool fwd, bool back)
@@ -198,6 +199,25 @@ static void SelectSphere(GameState* gs, int next)
 	if (next != 0) shape->instanceData[i * 17] = TEX_BLUE;
 }
 
+static void TestChunkRle(GameState* gs)
+{
+	printf("Testing RLE chunk compression.\n");
+	ivec3 wPos, cPos;
+	GetIntCoords(gs->cam->pos, wPos);
+	Chunk* chunk = World_GetChunkAndCoords(gs->world, wPos, cPos);
+	RleChunk rle = Compress_Chunk(chunk);
+	Chunk tempChunk;
+	tempChunk.blocks = malloc(64 * 64 * 64);
+	Decompress_Chunk(&tempChunk, rle);
+	const float rawSize = (64 * 64 * 64) / 1024.0f;
+	float kb = rle.n / 512.0f;
+	float percent = (kb / rawSize) * 100.0f;
+	printf("\nRLE Compressed Size: %.2f kiB (%.2f\%) in %d runs\n", kb, percent, rle.n);
+	printf("Freeing the temporary chunk.\n");
+	free(tempChunk.blocks);
+	free(rle.runs);
+}
+
 static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 {
 	switch (sym)
@@ -310,6 +330,9 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 	case SDLK_v:
 		SelectSphere(gs, 0);
 		gs->currentModel = Shape_AddModel(gs->shapes + 0);
+		break;
+	case SDLK_b:
+		TestChunkRle(gs);
 		break;
 
 	case SDLK_RETURN:

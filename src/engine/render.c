@@ -141,9 +141,7 @@ static void InitShapeBuffer(GameState* gs, int shapeIndex)
 // initializes OpenGL buffers
 static void InitBuffers(GameState* gs)
 {
-	const int n = 3;
-	const size_t numBlocks = 64 * 64 * 64;
-
+	const int n = 4;
 	for (int i = 0; i < n; i++) InitShapeBuffer(gs, i);
 	printf("Initialized main buffers.\n");
 
@@ -297,87 +295,29 @@ static size_t ReadProgramFile(char* buffer, int max)
 	return n;
 }
 
-// generates the voxel terrain and creates the various Shape objects
-static int InitGameContent(void* threadData)
-{
-	printf("Thread running.\n");
-	GameState* gs = threadData;
-
-	World_Init(gs->world);
-	Mesher_MeshWorld(gs->world);
-
-	// create game objects
-	Shape_MakeSphere(gs->shapes + 0, 3);
-	Shape_MakePlane(gs->shapes + 1);
-	char initialText[5000];
-	size_t n = ReadProgramFile(initialText, 5000);
-	initialText[n] = '\0';
-	gs->textBox = Shape_MakeTextBox(gs->shapes + 2, 75, 50, true, initialText);
-	gs->textBox->i = n - 1;
-	gs->currentModel = gs->shapes[0].models + 2;
-	gs->shapes[0].instanceData[17 * 2] = TEX_BLUE;
-	printf("Created shapes.\n");
-
-	gs->progress->done = true;
-	printf("Thread complete.\n");
-	return 0;
-}
-
-// temporary rendering while the game is loading
-static void DrawLoading(GameState* gs)
-{
-	const int shapeI = 3;
-
-	glClearColor(0.5f, 0.3f, 0.3f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glLoadIdentity();
-	glUseProgram(gs->basicShader);
-
-	glm_mat4_identity(gs->matProj);
-	glm_perspective(45.0f, (GLfloat)WIDTH / (GLfloat)HEIGHT, 0.1f, 500.0f, gs->matProj);
-	GLint projLoc = glGetUniformLocation(gs->basicShader, "ourProj");
-	glUniformMatrix4fv(projLoc, 1, GL_FALSE, (void*)(gs->matProj));
-
-	glm_mat4_identity(gs->matView);
-	Camera_GetViewMatrix(gs->cam, gs->matView);
-	GLint viewLoc = glGetUniformLocation(gs->basicShader, "ourView");
-	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, (void*)(gs->matView));
-
-	glBindTexture(GL_TEXTURE_2D, gs->textures[8]);
-
-	Shape* shape = gs->shapes + shapeI;
-	glBindVertexArray(gs->VAO[shapeI]);
-
-	// apply transformations to each model instance
-	for (int i = 0; i < shape->numModels; i++)
-	{
-		Model* model = shape->models + i;
-		mat4* matrix = (void*)(shape->instanceData + (i * 17) + 1);
-		mat4 tempMat;
-		glm_mat4_identity(tempMat);
-		glm_mat4_mul((void*)(shape->groupMat), tempMat, tempMat);
-		glm_translate(tempMat, model->pos);
-		glm_scale(tempMat, (vec3) { model->scale, model->scale, model->scale });
-		memcpy(matrix, tempMat, sizeof(mat4));
-	}
-
-	// re-buffer the instance data because transformations may have changed
-	glBindBuffer(GL_ARRAY_BUFFER, gs->IBO[shapeI]);
-	glBufferData(GL_ARRAY_BUFFER, shape->numModels * MODEL_INSTANCE_SIZE, shape->instanceData, GL_DYNAMIC_DRAW);
-
-	// draw all instances of the current shape
-	glDrawElementsInstanced(GL_TRIANGLES, shape->numIndices, GL_UNSIGNED_SHORT, 0, shape->numModels);
-	SDL_GL_SwapWindow(gs->window);
-}
-
 bool Render_Init(GameState* gs)
 {
 	if (!InitSDL(gs)) return false;
 	if (!InitGLEW(gs)) return false;
 	if (!InitStateObject(gs)) return false;
 
-	SDL_Thread* testThread = SDL_CreateThread(InitGameContent, "World Generation Thread", gs);
-	printf("Created thread.\n");
+	// create game objects
+	World_Init(gs->world);
+	Shape_MakeSphere(gs->shapes + 0, 3);
+	Shape_MakePlane(gs->shapes + 1);
+	char initialText[5000];
+	size_t n = ReadProgramFile(initialText, 5000);
+	initialText[n] = '\0';
+	int nCols = 75, nRows = 50;
+	gs->textBox = Shape_MakeTextBox(gs->shapes + 2, nCols, nRows, true, initialText);
+	gs->textBox->i = n - 1;
+	gs->currentModel = gs->shapes[0].models + 2;
+	gs->shapes[0].instanceData[17 * 2] = TEX_BLUE;
+	nCols = 60; nRows = 10;
+	gs->loadingTextBox = Shape_MakeTextBox(gs->shapes + 3, nCols, nRows, false, NULL);
+	gs->loadingTextBox->texOffset = TEX_SET2;
+	glm_translate((void*)(gs->loadingTextBox->shape->groupMat), (vec3) { 30.0f, 0.0f, -30.0f });
+	printf("Created shapes.\n");
 
 	// generate IDs for the Vertex Array Objects
 	glGenVertexArrays(gs->numShapes, gs->VAO);
@@ -385,33 +325,9 @@ bool Render_Init(GameState* gs)
 	glGenBuffers(gs->numShapes, gs->IBO);
 	glGenBuffers(gs->numShapes, gs->EBO);
 	LoadTextures(gs);
-
-	Progress* prog = gs->progress;
-	const int i = 3, nCols = 60, nRows = 10;
-	gs->loadingTextBox = Shape_MakeTextBox(gs->shapes + i, nCols, nRows, false, NULL);
-	gs->loadingTextBox->texOffset = TEX_SET2;
-	glm_translate((void*)(gs->loadingTextBox->shape->groupMat), (vec3) { 30.0f, 0.0f, -30.0f });
-	// For now, only initialize buffers for this loading text box.
-	// Then loading info can be rendered while everything else is initialized.
-	// TODO: this is horrendous
-	InitShapeBuffer(gs, i);
-
-	while (!gs->progress->done)
-	{
-		Camera_UpdateVectors(gs->cam);
-		ProgressPrint(gs->loadingTextBox->text, nCols * nRows, gs->progress);
-		Editor_Update(gs->loadingTextBox, SDL_GetTicks());
-		DrawLoading(gs);
-		SDL_Delay(50);
-	}
-
 	InitBuffers(gs);
-
-	printf("Waiting for thread.\n");
-	SDL_WaitThread(testThread, NULL);
-	printf("Wait complete.\n");
-
 	printf("Initialized renderer.\n");
+
 	return true;
 }
 
@@ -444,7 +360,7 @@ void Render_Destroy(GameState* gs)
 	SDL_GL_DeleteContext(gs->glContext);
 	SDL_DestroyWindow(gs->window);
 
-	printf("Renderer shutdown successful.\n");
+	printf("Renderer destroyed.\n");
 }
 
 void Render_Draw(GameState* gs)

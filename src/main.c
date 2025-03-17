@@ -63,7 +63,7 @@ static int CodeDemo(void* threadData)
 	Processor* proc = Processor_New(device, mem); // Create a virtual processor
 	gs->processorHalt = &(proc->halt); // this is so hacky
 
-	while (true)
+	while (gs->world->alive)
 	{
 		SDL_Delay(1000);
 
@@ -111,8 +111,7 @@ int main(int argc, char* argv[])
 	GameState gs = { .world = &w, .cam = &cam, .progress = &prog };
 	gs.programFilePath = "res/code/example.temp";
 	InputState key = { .gravity = false, .running = true };
-
-	SDL_DetachThread(SDL_CreateThread(&CodeDemo, "Code Demo Thread", &gs));
+	SDL_Thread* codeThread = SDL_CreateThread(&CodeDemo, "Code Demo Thread", &gs);
 
 	if (Render_Init(&gs))
 	{
@@ -124,7 +123,7 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	printf("Start game loop...\n");
+	printf("Starting game loop...\n");
 	while (key.running)
 	{
 		Input_HandleInput(&key, &gs);
@@ -132,9 +131,15 @@ int main(int argc, char* argv[])
 		Render_Draw(&gs);
 	}
 
-	Render_Destroy(&gs);
-	SDL_Quit();
 	printf("Shutting down...\n");
+	gs.runProgram = false;
+	*(gs.processorHalt) = true;
+	Render_Destroy(&gs);
+	SDL_WaitThread(codeThread, NULL);
+	printf("Code thread finished.\n");
+	SDL_Delay(1000);
+	SDL_Quit();
+	printf("Shutdown successful.\n");
 
 	return 0;
 }

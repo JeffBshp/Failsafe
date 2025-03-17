@@ -336,8 +336,13 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 		break;
 
 	case SDLK_RETURN:
-		*(gs->processorHalt) = true;
-		gs->runProgram = true;
+		if (*(gs->processorHalt)) gs->runProgram = true;
+		else
+		{
+			printf("Halt!\n");
+			gs->runProgram = false;
+			*(gs->processorHalt) = true;
+		}
 		break;
 	case SDLK_SPACE:
 		key->space = true;

@@ -20,6 +20,7 @@
 Processor* Processor_New(Device device, Memory memory)
 {
 	Processor* p = calloc(1, sizeof(Processor));
+	p->halt = true;
 	p->device = device;
 	p->memory = memory;
 	return p;

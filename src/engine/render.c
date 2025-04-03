@@ -196,7 +196,7 @@ static bool InitSDL(GameState* gs)
 	//SDL_SetHint(SDL_HINT_GRAB_KEYBOARD, "1");
 	//SDL_SetWindowGrab(gs->window, SDL_TRUE);
 
-	SDL_SetRelativeMouseMode(SDL_TRUE);
+	//SDL_SetRelativeMouseMode(SDL_TRUE);
 
 	//SDL_ShowCursor(SDL_DISABLE);
 
@@ -372,7 +372,7 @@ void Render_Draw(GameState* gs)
 	glUseProgram(gs->basicShader);
 
 	glm_mat4_identity(gs->matProj);
-	glm_perspective(45.0f, (GLfloat)WIDTH / (GLfloat)HEIGHT, 0.1f, 500.0f, gs->matProj);
+	glm_perspective(45.0f, (GLfloat)WIDTH / (GLfloat)HEIGHT, 0.1f, 2000.0f, gs->matProj);
 	GLint projLoc = glGetUniformLocation(gs->basicShader, "ourProj");
 	glUniformMatrix4fv(projLoc, 1, GL_FALSE, (void*)(gs->matProj));
 
@@ -442,54 +442,49 @@ void Render_Draw(GameState* gs)
 	glBindTexture(GL_TEXTURE_2D, gs->textures[8]);
 	glBindVertexArray(gs->chunkBAO);
 	const size_t numBlocks = 64 * 64 * 64;
-	Treadmill3D* chunks = gs->world->chunks;
-	int wX = chunks->x;
-	int wY = chunks->y;
-	int wZ = chunks->z;
-	int r = chunks->radius;
+	ListUInt64 chunkList = gs->world->allChunks;
 
 	SDL_LockMutex(gs->world->mutex);
 
-	for (int z = wZ - r; z <= wZ + r; z++)
+	for (int i = 0; i < chunkList.size; i++)
 	{
-		for (int y = wY - r; y <= wY + r; y++)
+		Chunk* chunk = (void *)chunkList.values[i];
+		if (chunk == NULL) continue;
+		if (!EnumHasFlag(chunk->flags, CHUNK_LOADED)) continue;
+		if (EnumHasFlag(chunk->flags, CHUNK_DIRTY)) continue;
+		if (EnumHasFlag(chunk->flags, CHUNK_DEAD)) continue;
+
+		SDL_LockMutex(chunk->mutex);
+
+		ListUInt64 quads = chunk->quads;
+		vec3 chunkPos;
+		chunkPos[0] = chunk->coords[0] * 64;
+		chunkPos[1] = chunk->coords[1] * 64;
+		chunkPos[2] = chunk->coords[2] * 64;
+
+		mat4 chunkModel;
+		glm_mat4_identity(chunkModel);
+		glm_translate(chunkModel, chunkPos);
+		int chunkScale = 1 << chunk->lodLevel;
+		scale[0] = scale[1] = scale[2] = chunkScale;
+		glm_scale(chunkModel, scale);
+
+		glUniformMatrix4fv(glGetUniformLocation(gs->chunkShader, "ourModel"), 1, GL_FALSE, (void*)chunkModel);
+
+		// TODO: Keep all chunks in one buffer and call glBufferSubData.
+		// TODO: Only buffer if chunk has changed.
+		gs->buffer = true;
+		if (gs->buffer)
 		{
-			for (int x = wX - r; x <= wX + r; x++)
-			{
-				Chunk* chunk = Treadmill3DGet(chunks, x, y, z);
-				if (chunk == NULL) continue;
-				if (!EnumHasFlag(chunk->flags, CHUNK_LOADED)) continue;
-				if (EnumHasFlag(chunk->flags, CHUNK_DIRTY)) continue;
-
-				SDL_LockMutex(chunk->mutex);
-
-				ListUInt64 quads = chunk->quads;
-				vec3 chunkPos;
-				mat4 chunkModel;
-				chunkPos[0] = chunk->coords[0] * 64;
-				chunkPos[1] = chunk->coords[1] * 64;
-				chunkPos[2] = chunk->coords[2] * 64;
-
-				glm_mat4_identity(chunkModel);
-				glm_translate(chunkModel, chunkPos);
-				glUniformMatrix4fv(glGetUniformLocation(gs->chunkShader, "ourModel"), 1, GL_FALSE, (void*)chunkModel);
-
-				// TODO: Keep all chunks in one buffer and call glBufferSubData.
-				// TODO: Only buffer if chunk has changed.
-				gs->buffer = true;
-				if (gs->buffer)
-				{
-					glBindBuffer(GL_SHADER_STORAGE_BUFFER, gs->chunkBBO);
-					glBufferData(GL_SHADER_STORAGE_BUFFER, numBlocks * sizeof(GLubyte), chunk->blocks, GL_DYNAMIC_DRAW);
-					glBindBuffer(GL_ARRAY_BUFFER, gs->chunkQBO);
-					glBufferData(GL_ARRAY_BUFFER, quads.size * sizeof(GLuint64), quads.values, GL_DYNAMIC_DRAW);
-					gs->buffer = false;
-				}
-				SDL_UnlockMutex(chunk->mutex);
-
-				glDrawArrays(GL_POINTS, 0, quads.size);
-			}
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, gs->chunkBBO);
+			glBufferData(GL_SHADER_STORAGE_BUFFER, numBlocks * sizeof(GLubyte), chunk->blocks, GL_DYNAMIC_DRAW);
+			glBindBuffer(GL_ARRAY_BUFFER, gs->chunkQBO);
+			glBufferData(GL_ARRAY_BUFFER, quads.size * sizeof(GLuint64), quads.values, GL_DYNAMIC_DRAW);
+			gs->buffer = false;
 		}
+		SDL_UnlockMutex(chunk->mutex);
+
+		glDrawArrays(GL_POINTS, 0, quads.size);
 	}
 
 	SDL_UnlockMutex(gs->world->mutex);

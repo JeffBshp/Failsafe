@@ -27,7 +27,7 @@ static void Init(NoiseMaker* nm)
 	for (int i = 255; i > 0; i--)
 	{
 		int r = rand() % i;
-		unsigned char temp = nm->influences[i];
+		uint8_t temp = nm->influences[i];
 		nm->influences[i] = nm->influences[r];
 		nm->influences[r] = temp;
 	}
@@ -47,7 +47,7 @@ static inline double Lerp(double t, double a, double b)
 	return a + t * (b - a);
 }
 
-static inline double DotProductInfluence(double x, double y, unsigned char influence)
+static inline double DotProductInfluence(double x, double y, uint8_t influence)
 {
 	const double infConvFactor = 6.283185307179586 / 255.0;
 	double infRadians = (double)influence * infConvFactor;
@@ -56,16 +56,16 @@ static inline double DotProductInfluence(double x, double y, unsigned char influ
 
 static double PerlinNoise2D(NoiseMaker* nm, double x, double y)
 {
-	unsigned char* inf = nm->influences;
-	unsigned char byteX = floor(x);
-	unsigned char byteY = floor(y);
+	uint8_t* inf = nm->influences;
+	uint8_t byteX = floor(x);
+	uint8_t byteY = floor(y);
 	double fracX = x - floor(x);
 	double fracY = y - floor(y);
 
-	unsigned char infLL = inf[inf[byteX] + byteY];
-	unsigned char infLR = inf[inf[byteX + 1] + byteY];
-	unsigned char infUL = inf[inf[byteX] + byteY + 1];
-	unsigned char infUR = inf[inf[byteX + 1] + byteY + 1];
+	uint8_t infLL = inf[inf[byteX] + byteY];
+	uint8_t infLR = inf[inf[byteX + 1] + byteY];
+	uint8_t infUL = inf[inf[byteX] + byteY + 1];
+	uint8_t infUR = inf[inf[byteX + 1] + byteY + 1];
 
 	double dotLL = DotProductInfluence(fracX, fracY, infLL);
 	double dotLR = DotProductInfluence(fracX - 1.0, fracY, infLR);
@@ -81,7 +81,7 @@ static double PerlinNoise2D(NoiseMaker* nm, double x, double y)
 	return noise;
 }
 
-static inline double DotProductInfluence3D(double x, double y, double z, unsigned char influence)
+static inline double DotProductInfluence3D(double x, double y, double z, uint8_t influence)
 {
 	const double pi = 3.141592653589793;
 	double yawRadians = (influence & 0x0F) * pi * 0.125;
@@ -94,22 +94,22 @@ static inline double DotProductInfluence3D(double x, double y, double z, unsigne
 
 static double PerlinNoise3D(NoiseMaker* nm, double x, double y, double z)
 {
-	unsigned char* inf = nm->influences;
-	unsigned char byteX = floor(x);
-	unsigned char byteY = floor(y);
-	unsigned char byteZ = floor(z);
+	uint8_t* inf = nm->influences;
+	uint8_t byteX = floor(x);
+	uint8_t byteY = floor(y);
+	uint8_t byteZ = floor(z);
 	double fracX = x - floor(x);
 	double fracY = y - floor(y);
 	double fracZ = z - floor(z);
 
-	unsigned char infLLN = inf[inf[inf[byteX]]		+ inf[byteY]		+ byteZ];
-	unsigned char infLRN = inf[inf[inf[byteX + 1]]	+ inf[byteY]		+ byteZ];
-	unsigned char infULN = inf[inf[inf[byteX]]		+ inf[byteY + 1]	+ byteZ];
-	unsigned char infURN = inf[inf[inf[byteX + 1]]	+ inf[byteY + 1]	+ byteZ];
-	unsigned char infLLP = inf[inf[inf[byteX]]		+ inf[byteY]		+ byteZ + 1];
-	unsigned char infLRP = inf[inf[inf[byteX + 1]]	+ inf[byteY]		+ byteZ + 1];
-	unsigned char infULP = inf[inf[inf[byteX]]		+ inf[byteY + 1]	+ byteZ + 1];
-	unsigned char infURP = inf[inf[inf[byteX + 1]]	+ inf[byteY + 1]	+ byteZ + 1];
+	uint8_t infLLN = inf[inf[inf[byteX]]		+ inf[byteY]		+ byteZ];
+	uint8_t infLRN = inf[inf[inf[byteX + 1]]	+ inf[byteY]		+ byteZ];
+	uint8_t infULN = inf[inf[inf[byteX]]		+ inf[byteY + 1]	+ byteZ];
+	uint8_t infURN = inf[inf[inf[byteX + 1]]	+ inf[byteY + 1]	+ byteZ];
+	uint8_t infLLP = inf[inf[inf[byteX]]		+ inf[byteY]		+ byteZ + 1];
+	uint8_t infLRP = inf[inf[inf[byteX + 1]]	+ inf[byteY]		+ byteZ + 1];
+	uint8_t infULP = inf[inf[inf[byteX]]		+ inf[byteY + 1]	+ byteZ + 1];
+	uint8_t infURP = inf[inf[inf[byteX + 1]]	+ inf[byteY + 1]	+ byteZ + 1];
 
 	double dotLLN = DotProductInfluence3D(fracX,		fracY,			fracZ,			infLLN);
 	double dotLRN = DotProductInfluence3D(fracX - 1.0,	fracY,			fracZ,			infLRN);
@@ -175,14 +175,14 @@ static double FBM3D(NoiseMaker* nm, double x, double y, double z, int octaves)
 	return result;
 }
 
-unsigned char* Noise_Generate2D(NoiseMaker* nm, int ofsX, int ofsY, float* progress)
+uint8_t* Noise_Generate2D(NoiseMaker* nm, int ofsX, int ofsY, float* progress)
 {
 	const int width = 64, octaves = 8;
 	const int width2 = width * width;
 	double min = 1000, max = -1000;
 	float deltaProgress = 100.0f / (width2 + 1);
 	double* noiseData = malloc(width2 * sizeof(double));
-	unsigned char* imageData = malloc(width2 * sizeof(unsigned char));
+	uint8_t* imageData = malloc(width2 * sizeof(uint8_t));
 
 	if (noiseData == NULL || imageData == NULL) return NULL;
 
@@ -224,17 +224,16 @@ unsigned char* Noise_Generate2D(NoiseMaker* nm, int ofsX, int ofsY, float* progr
 	return imageData;
 }
 
-unsigned char* Noise_Generate3D(NoiseMaker* nm, int ofsX, int ofsY, float* progress)
+uint8_t* Noise_Generate3D(NoiseMaker* nm, int ofsX, int ofsY, int ofsZ, float* progress)
 {
 	const int width = 64, octaves = 4;
 	const int width2 = width * width;
 	const int width3 = width2 * width;
-	int ofsZ = 0;
 	double min = 1000, max = -1000;
 	float deltaProgress = 100.0f / (width3 + width);
 	double* noiseData = malloc(width3 * sizeof(double));
-	//unsigned char* imageData = malloc(width2 * sizeof(unsigned char));
-	unsigned char* retData = malloc(width3 * sizeof(unsigned char));
+	//uint8_t* imageData = malloc(width2 * sizeof(uint8_t));
+	uint8_t* retData = malloc(width3 * sizeof(uint8_t));
 
 	if (noiseData == NULL /*|| imageData == NULL*/ || retData == NULL) return NULL;
 
@@ -269,7 +268,7 @@ unsigned char* Noise_Generate3D(NoiseMaker* nm, int ofsX, int ofsY, float* progr
 				int ii = (y * width) + x;
 				int in = (z * width2) + ii;
 				double noise = noiseData[in] - min;
-				unsigned char retNoise = noise * conversion;
+				uint8_t retNoise = noise * conversion;
 				//imageData[ii] = retNoise;
 				retData[in] = retNoise;
 			}

@@ -5,7 +5,7 @@ EXE = game.bin
 
 CC = gcc
 CFLAGS = -w -ggdb -I$(INC)
-LIBS = -lGLEW -lGLU -lGL -lSDL2 -lcglm -lm
+LIBS = -lGLEW -lGLU -lGL -lSDL2 -lcglm -lz -lm
 
 OBJFILES := $(patsubst $(SRC)/%.c, $(OBJ)/%.o, $(shell find $(SRC) -name '*.c'))
 OBJDIRS := $(patsubst $(SRC)%, $(OBJ)%, $(shell find $(SRC) -type d))

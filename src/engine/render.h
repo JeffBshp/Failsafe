@@ -38,6 +38,7 @@ typedef struct
 	Model* currentModel;
 	int lastTicks;
 	int lastSecondTicks;
+	bool initialized;
 	bool buffer;
 	bool runProgram;
 	bool* processorHalt;

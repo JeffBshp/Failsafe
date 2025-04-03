@@ -13,16 +13,34 @@ out vec4 color;
 
 uniform sampler2DArray ourTexture;
 
+uint splitBits(uint x)
+{
+	x = (x | (x << 8)) & 0x300F; // 0011 0000 0000 1111
+	x = (x | (x << 4)) & 0x30C3; // 0011 0000 1100 0011
+	x = (x | (x << 2)) & 0x9249; // 1001 0010 0100 1001
+
+	return x;
+}
+
+uint getMortonCode(uint x, uint y, uint z)
+{
+	x = splitBits(x);
+	y = splitBits(y) << 1;
+	z = splitBits(z) << 2;
+
+	return z | y | x;
+}
+
 void main()
 {
 	uint x = uint(floor(voxelCoord.x + voxelOffset.x));
 	uint y = uint(floor(voxelCoord.y + voxelOffset.y));
 	uint z = uint(floor(voxelCoord.z + voxelOffset.z));
-	uint i = (z * 4096) + (y * 64) + x;
-	
-	uint bytePosition = i % 4;
-	uint uintPosition = (i / 4) % 4;
-	uint vecIndex = i / 16;
+	uint m = getMortonCode(x, y, z);
+
+	uint bytePosition = m % 4;
+	uint uintPosition = (m / 4) % 4;
+	uint vecIndex = m / 16;
 	uint bytes = blockData[vecIndex][uintPosition];
 
 	// (4 - bytePosition) for little-endian
@@ -55,6 +73,6 @@ void main()
 		textureCoord = vec2(0.0, 0.0);
 		return;
 	}
-	
+
 	color = texture(ourTexture, vec3(textureCoord, blockType + 576));
 }

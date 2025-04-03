@@ -14,6 +14,8 @@
 #include "noise.h"
 #include "utility.h"
 #include "mesher.h"
+#include "lod.h"
+#include "world.h"
 
 // Indexes an occupancy mask by plane and row.
 // Returns an int representing the row, where each bit indicates the presence of a block in the corresponding column.
@@ -30,41 +32,9 @@ static inline void SetOccupancy(uint64_t* occupancy, Axis axis, int plane, int r
 	occupancy[(axis * 4096) + (plane * 64) + row] |= (1ull << column);
 }
 
-static inline bool CheckOutOfBounds(ivec3 coords, int width, int depth, int height)
-{
-	int x = coords[0];
-	int y = coords[1];
-	int z = coords[2];
-
-	return (x < 0 || x >= width || y < 0 || y >= height || z < 0 || z >= depth);
-}
-
-// Returns the start of a chunk at the given world-to-chunk coordinates.
-static inline Chunk* WorldIndexToChunk(World* world, ivec3 coords)
-{
-	// When checking the next block in a neighboring chunk, coords may go out of bounds.
-	// The returned NULL needs to be checked when accessing the chunk.
-	return Treadmill3DGet(world->chunks, coords[0], coords[1], coords[2]);
-}
-
-// Returns the block data at the given coorinates within a chunk.
-static inline unsigned char IndexChunk(Chunk* chunk, ivec3 coords)
-{
-	// When checking the next block in a neighboring chunk, the chunk is NULL if at the edge of the world.
-	// Return 0 to indicate air / no block present.
-	if (chunk == NULL) return 0;
-
-	int x = coords[0];
-	int y = coords[1];
-	int z = coords[2];
-
-	return chunk->blocks[(z * 64 * 64) + (y * 64) + x];
-}
-
 static bool GenerateOccupancyMasks(Chunk* chunk)
 {
 	bool anyBlocks = false;
-	int i = 0;
 
 	// load occupancy data from raw chunk
 	for (int z = 0; z < 64; z++)
@@ -73,7 +43,8 @@ static bool GenerateOccupancyMasks(Chunk* chunk)
 		{
 			for (int x = 0; x < 64; x++)
 			{
-				unsigned char blockType = chunk->blocks[i++];
+				int m = GetMortonCode(x, y, z);
+				uint8_t blockType = chunk->blocks[m];
 
 				if (blockType != 0)
 				{
@@ -162,17 +133,10 @@ static void CalculateFacesForAxis(Chunk* chunk, World* world, Axis axis, int pla
 	uint64_t blocks = GetOccupancy(chunk->occupancy, axis, plane, row);
 	if (blocks == 0) return;
 
-	ivec3 prevCoords, nextCoords;
-	glm_ivec3_copy(chunk->coords, prevCoords);
-	glm_ivec3_copy(chunk->coords, nextCoords);
-	prevCoords[axis] += 1;
-	nextCoords[axis] -= 1;
-	Chunk* prevChunk = WorldIndexToChunk(world, prevCoords);
-	Chunk* nextChunk = WorldIndexToChunk(world, nextCoords);
-	ConvertAxisCoords(prevCoords, axis, 0, row, plane);
-	ConvertAxisCoords(nextCoords, axis, 63, row, plane);
-	bool prevBlock = 0 != IndexChunk(prevChunk, prevCoords);
-	bool nextBlock = 0 != IndexChunk(nextChunk, nextCoords);
+	// TODO: determine whether the faces at the chunk boundaries are exposed
+	bool prevBlock = false;
+	bool nextBlock = false;
+
 	CalculateFaces(chunk->faceMasks, blocks, axis, plane, row, prevBlock, nextBlock);
 }
 
@@ -299,58 +263,48 @@ void Mesher_MeshWorld(World* world)
 
 	const size_t sizeOfMaskArrays = 64 * 64 * sizeof(uint64_t);
 	Uint32 ticks = SDL_GetTicks();
-	int wX = world->chunks->x;
-	int wY = world->chunks->y;
-	int wZ = world->chunks->z;
-	int r = world->chunks->radius;
 	bool dirty = false;
+	ListUInt64 chunkList = world->allChunks;
 
-	for (int z = wZ - r; z <= wZ + r; z++)
+	for (int i = 0; i < chunkList.size; i++)
 	{
-		for (int y = wY - r; y <= wY + r; y++)
+		Chunk *chunk = (void *)chunkList.values[i];
+		if (chunk == NULL) continue;
+
+		SDL_LockMutex(chunk->mutex);
+
+		if (!EnumHasFlag(chunk->flags, CHUNK_LOADED))
 		{
-			for (int x = wX - r; x <= wX + r; x++)
-			{
-				Chunk* chunk = Treadmill3DGet(world->chunks, x, y, z);
-				if (chunk == NULL) continue;
-
-				SDL_LockMutex(chunk->mutex);
-
-				if (!EnumHasFlag(chunk->flags, CHUNK_LOADED))
-				{
-					SDL_UnlockMutex(chunk->mutex);
-					dirty = true; // skip meshing this chunk and let the world remain dirty
-					continue;
-				}
-
-				if (!EnumHasFlag(chunk->flags, CHUNK_DIRTY))
-				{
-					SDL_UnlockMutex(chunk->mutex);
-					continue;
-				}
-
-
-				ticks = SDL_GetTicks();
-				chunk->occupancy = malloc(3 * sizeOfMaskArrays); // 96 kB
-				memset(chunk->occupancy, 0, 3 * sizeOfMaskArrays);
-				chunk->faceMasks = malloc(6 * sizeOfMaskArrays); // 192 kB
-				memset(chunk->faceMasks, 0, 6 * sizeOfMaskArrays);
-
-				if (GenerateOccupancyMasks(chunk))
-				{
-					GenerateFaceMasks(chunk, world);
-					GreedyMesh(chunk);
-				}
-
-				free(chunk->occupancy);
-				free(chunk->faceMasks);
-				EnumSetFlag((int*)(&chunk->flags), CHUNK_DIRTY, false);
-				SDL_UnlockMutex(chunk->mutex);
-
-				ticks = SDL_GetTicks() - ticks;
-				//printf("Chunk mesh took %d ms.\n", ticks);
-			}
+			SDL_UnlockMutex(chunk->mutex);
+			dirty = true; // skip meshing this chunk and let the world remain dirty
+			continue;
 		}
+
+		if (!EnumHasFlag(chunk->flags, CHUNK_DIRTY))
+		{
+			SDL_UnlockMutex(chunk->mutex);
+			continue;
+		}
+
+		ticks = SDL_GetTicks();
+		chunk->occupancy = malloc(3 * sizeOfMaskArrays); // 96 kB
+		memset(chunk->occupancy, 0, 3 * sizeOfMaskArrays);
+		chunk->faceMasks = malloc(6 * sizeOfMaskArrays); // 192 kB
+		memset(chunk->faceMasks, 0, 6 * sizeOfMaskArrays);
+
+		if (GenerateOccupancyMasks(chunk))
+		{
+			GenerateFaceMasks(chunk, world);
+			GreedyMesh(chunk);
+		}
+
+		free(chunk->occupancy);
+		free(chunk->faceMasks);
+		EnumSetFlag((int*)(&chunk->flags), CHUNK_DIRTY, false);
+		SDL_UnlockMutex(chunk->mutex);
+
+		ticks = SDL_GetTicks() - ticks;
+		//printf("Chunk mesh took %d ms for %d quads.\n", ticks, chunk->quads.size);
 	}
 
 	if (!dirty) world->dirty = false;

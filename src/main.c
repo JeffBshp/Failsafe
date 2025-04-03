@@ -3,6 +3,7 @@
 #endif
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdbool.h>
 #include <math.h>
 
@@ -41,7 +42,7 @@ static void BreakBlock(void* worldData, float* coords)
 	wPos[1] -= 1; // go one block down
 	World* world = worldData;
 	Chunk* chunk = World_GetChunkAndCoords(world, wPos, cPos);
-	unsigned char blockType = World_GetBlock(chunk, cPos);
+	uint8_t blockType = World_GetBlock(chunk, cPos);
 
 	if (blockType != BLOCK_AIR)
 	{
@@ -53,7 +54,7 @@ static void BreakBlock(void* worldData, float* coords)
 static int CodeDemo(void* threadData)
 {
 	GameState* gs = threadData;
-	SDL_Delay(3000);
+	while (!gs->initialized) SDL_Delay(1000);
 
 	Memory mem = Memory_New(2048); // Create a virtual memory unit
 	// Get a reference to the position and velocity of one of the objects
@@ -73,7 +74,7 @@ static int CodeDemo(void* threadData)
 			gs->runProgram = false;
 
 			// Save the source code
-			Editor_SaveToFile(gs->textBox, gs->programFilePath);
+			Editor_SaveToFile(gs->codeTextBox, gs->programFilePath);
 			// Parse and compile the virtual program
 			SyntaxTree* ast = Parser_ParseFile(gs->programFilePath);
 			Program* p = Compiler_GenerateCode(ast);
@@ -107,8 +108,8 @@ int main(int argc, char* argv[])
 	Camera cam;
 	NoiseMaker nm = { .initialized = false };
 	Progress prog = { .percent1 = 0, .percent2 = 0, .done = false };
-	World w = { .noiseMaker = &nm, .progress = &prog, .folderPath = "res/world" };
-	GameState gs = { .world = &w, .cam = &cam, .progress = &prog };
+	World w = { .noiseMaker = &nm, .progress = &prog, .folderPath = "res/world/debug" };
+	GameState gs = { .world = &w, .cam = &cam, .progress = &prog, .processorHalt = NULL };
 	gs.programFilePath = "res/code/example.temp";
 	InputState key = { .gravity = false, .running = true };
 	SDL_Thread* codeThread = SDL_CreateThread(&CodeDemo, "Code Demo Thread", &gs);
@@ -116,6 +117,7 @@ int main(int argc, char* argv[])
 	if (Render_Init(&gs))
 	{
 		printf("Game started.\n");
+		gs.initialized = true;
 	}
 	else
 	{
@@ -133,7 +135,7 @@ int main(int argc, char* argv[])
 
 	printf("Shutting down...\n");
 	gs.runProgram = false;
-	*(gs.processorHalt) = true;
+	if (gs.processorHalt != NULL) *(gs.processorHalt) = true;
 	Render_Destroy(&gs);
 	SDL_WaitThread(codeThread, NULL);
 	printf("Code thread finished.\n");

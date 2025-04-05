@@ -179,10 +179,13 @@ static bool InitSDL(GameState* gs)
 
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 6);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5);
 	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
-	gs->window = SDL_CreateWindow("Game", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, SDL_WINDOW_OPENGL);
+	const int width = 1920;
+	const int height = 1080;
+	Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
+	gs->window = SDL_CreateWindow("Game", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, windowFlags);
 	gs->glContext = SDL_GL_CreateContext(gs->window);
 	//gs->renderer = SDL_CreateRenderer(gs->window, -1, SDL_RENDERER_TARGETTEXTURE);
 
@@ -239,7 +242,6 @@ static bool InitGLEW(GameState* gs)
 		gs->chunkShader = shaderProgramId;
 	}
 
-	glViewport(0, 0, WIDTH, HEIGHT);
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_CULL_FACE);
 
@@ -364,23 +366,51 @@ void Render_Destroy(GameState* gs)
 	printf("Renderer destroyed.\n");
 }
 
-void Render_Draw(GameState* gs)
+// Sets the GL viewport while maintaining aspect ratio.
+// Calculates the projection and view matrices.
+static void SetViewport(GameState *gs)
+{
+	const float ratio = 0.5625f; // 1080/1920
+	int wWidth, wHeight, offsetX, offsetY;
+	SDL_GL_GetDrawableSize(gs->window, &wWidth, &wHeight);
+
+	if ((float)wHeight / (float)wWidth > ratio)
+	{
+		int temp = (int)floorf(ratio * (float)wWidth);
+		offsetX = 0;
+		offsetY = (wHeight - temp) / 2;
+		wHeight = temp;
+	}
+	else
+	{
+		int temp = (int)floorf((float)wHeight / ratio);
+		offsetX = (wWidth - temp) / 2;
+		offsetY = 0;
+		wWidth = temp;
+	}
+
+	glViewport(offsetX, offsetY, wWidth, wHeight);
+
+	glm_mat4_identity(gs->matProj);
+	glm_perspective(45.0f, (GLfloat)wWidth / (GLfloat)wHeight, 0.1f, 2000.0f, gs->matProj);
+
+	glm_mat4_identity(gs->matView);
+	Camera_GetViewMatrix(gs->cam, gs->matView);
+}
+
+// Draws everything for one frame.
+void Render_Draw(GameState *gs)
 {
 	glClearColor(0.4f, 0.6f, 0.8f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glLoadIdentity();
-	glUseProgram(gs->basicShader);
+	SetViewport(gs);
 
-	glm_mat4_identity(gs->matProj);
-	glm_perspective(45.0f, (GLfloat)WIDTH / (GLfloat)HEIGHT, 0.1f, 2000.0f, gs->matProj);
+	glUseProgram(gs->basicShader);
 	GLint projLoc = glGetUniformLocation(gs->basicShader, "ourProj");
 	glUniformMatrix4fv(projLoc, 1, GL_FALSE, (void*)(gs->matProj));
-
-	glm_mat4_identity(gs->matView);
-	Camera_GetViewMatrix(gs->cam, gs->matView);
 	GLint viewLoc = glGetUniformLocation(gs->basicShader, "ourView");
 	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, (void*)(gs->matView));
-
 	glBindTexture(GL_TEXTURE_2D, gs->textures[8]);
 
 	vec3 scale = { 0, 0, 0 };
@@ -437,8 +467,10 @@ void Render_Draw(GameState* gs)
 	}
 
 	glUseProgram(gs->chunkShader);
-	glUniformMatrix4fv(glGetUniformLocation(gs->chunkShader, "ourProj"), 1, GL_FALSE, (void*)(gs->matProj));
-	glUniformMatrix4fv(glGetUniformLocation(gs->chunkShader, "ourView"), 1, GL_FALSE, (void*)(gs->matView));
+	projLoc = glGetUniformLocation(gs->chunkShader, "ourProj");
+	glUniformMatrix4fv(projLoc, 1, GL_FALSE, (void*)(gs->matProj));
+	viewLoc = glGetUniformLocation(gs->chunkShader, "ourView");
+	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, (void*)(gs->matView));
 	glBindTexture(GL_TEXTURE_2D, gs->textures[8]);
 	glBindVertexArray(gs->chunkBAO);
 	const size_t numBlocks = 64 * 64 * 64;

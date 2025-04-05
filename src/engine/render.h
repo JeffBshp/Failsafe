@@ -10,9 +10,6 @@
 #include "mesher.h"
 #include "utility.h"
 
-#define WIDTH 1920
-#define HEIGHT 1080
-
 // a big ugly singleton where I shove misc variables that get passed around a lot
 typedef struct
 {

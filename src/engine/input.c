@@ -202,6 +202,8 @@ static void SelectSphere(GameState* gs, int next)
 
 static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 {
+	Uint32 windowFlags;
+
 	switch (sym)
 	{
 	case SDLK_ESCAPE:
@@ -344,6 +346,13 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 	case SDLK_LALT:
 	case SDLK_RALT:
 		gs->codeTextBox->focused = !gs->codeTextBox->focused;
+		break;
+
+	case SDLK_F11:
+		windowFlags = SDL_GetWindowFlags(gs->window);
+		if ((windowFlags & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) windowFlags = 0;
+		else windowFlags = SDL_WINDOW_FULLSCREEN_DESKTOP;
+		SDL_SetWindowFullscreen(gs->window, windowFlags);
 		break;
 	}
 }

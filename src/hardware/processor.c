@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include "SDL2/SDL.h"
+#include "cglm/cglm.h"
 #include "../language/float16.h"
 #include "processor.h"
 #include "device.h"
@@ -20,6 +20,7 @@
 Processor* Processor_New(Device device, Memory memory)
 {
 	Processor* p = calloc(1, sizeof(Processor));
+	p->ticks = 0;
 	p->halt = true;
 	p->device = device;
 	p->memory = memory;
@@ -28,6 +29,7 @@ Processor* Processor_New(Device device, Memory memory)
 
 void Processor_Reset(Processor* p, uword startAddress, uword stackPointer)
 {
+	p->ticks = 0;
 	p->halt = true;
 	p->programCounter = startAddress;
 	p->startAddress = 0;
@@ -147,7 +149,7 @@ static inline void MoveObject(Processor* proc, Instruction instr)
 {
 	uword fp = proc->registers[REG_FRAME_PTR];
 	word arg = proc->memory.data[fp];
-	float* vel = (void*)(proc->device.vel);
+	float* vel = (void*)(proc->device.model->vel);
 	const float dv = 0.5f;
 	glm_vec3_zero(vel);
 
@@ -162,24 +164,22 @@ static inline void MoveObject(Processor* proc, Instruction instr)
 	}
 }
 
-static inline void BreakBlock(Processor* proc)
-{
-	void* worldData = proc->device.world;
-	float* pos = (void*)(proc->device.pos);
-	proc->device.funcBreakBlock(worldData, pos);
-}
-
 #pragma endregion
 
-void Processor_Run(Processor* p)
+// Runs the processor for a certain number of ticks (milliseconds).
+// It runs at one cycle per tick, which is 1 kHz.
+// All instructions take exactly one cycle.
+void Processor_Run(Processor* p, int ticks)
 {
 	const bool log = false;
-	p->halt = false;
-	uword* r = &(p->registers[0]);
-	uword* mem = p->memory.data;
 
-	while (!p->halt && p->programCounter < p->memory.n)
+	// Calibrate ticks on the first frame. It will begin executing next frame.
+	if (p->ticks == 0) p->ticks = ticks;
+
+	while (p->ticks < ticks && !p->halt && p->programCounter < p->memory.n)
 	{
+		uword* r = p->registers;
+		uword* mem = p->memory.data;
 		Instruction instr;
 		instr.bits = mem[p->programCounter];
 		p->instruction = instr.bits;
@@ -238,7 +238,8 @@ void Processor_Run(Processor* p)
 					break;
 				case EXTCALL_SLEEP:
 					if (log) printf("CALL sleep(%d)\n", mem[r[REG_FRAME_PTR]]);
-					SDL_Delay(mem[r[REG_FRAME_PTR]]);
+					// ticks also gets incremented below; that is not counted toward the sleep time
+					p->ticks += mem[r[REG_FRAME_PTR]];
 					r[REG_STACK_PTR] = r[REG_FRAME_PTR];
 					break;
 				case EXTCALL_MOVE:
@@ -248,7 +249,7 @@ void Processor_Run(Processor* p)
 					break;
 				case EXTCALL_BREAK:
 					if (log) printf("CALL break(%d)\n", mem[r[REG_FRAME_PTR]]);\
-					BreakBlock(p);
+					Device_BreakBlock(&p->device);
 					r[REG_STACK_PTR] = r[REG_FRAME_PTR];
 					break;
 				default:
@@ -286,5 +287,6 @@ void Processor_Run(Processor* p)
 		}
 
 		p->programCounter = next;
+		p->ticks++;
 	}
 }

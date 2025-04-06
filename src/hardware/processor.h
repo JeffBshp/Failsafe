@@ -109,6 +109,7 @@ typedef struct
 	uword startAddress;
 	uword instruction;
 	uword registers[8];
+	int ticks;
 	Memory memory;
 	Device device;
 	bool halt;
@@ -116,4 +117,4 @@ typedef struct
 
 Processor* Processor_New(Device device, Memory memory);
 void Processor_Reset(Processor* p, uword startAddress, uword stackPointer);
-void Processor_Run(Processor* p);
+void Processor_Run(Processor* p, int ticks);

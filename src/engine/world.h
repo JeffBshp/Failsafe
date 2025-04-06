@@ -29,8 +29,7 @@ typedef struct Region Region;
 typedef struct
 {
 	char* folderPath;
-	NoiseMaker* noiseMaker;
-	Progress* progress;
+	NoiseMaker noiseMaker;
 	SDL_mutex* mutex;
 	SDL_Thread* chunkGenThreads[NUM_CHUNK_THREADS];
 	ListUInt64 deadChunks;

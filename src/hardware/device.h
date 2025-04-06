@@ -2,12 +2,13 @@
 
 #include "cglm/cglm.h"
 
+#include "../engine/shape.h"
+#include "../engine/world.h"
+
 typedef struct
 {
-	void* world;
-	// function pointer that breaks a block, pass in world and position
-	void (*funcBreakBlock)(void*, float*);
-	// references to the position and velocity of the corresponding object in the game world
-	vec3* pos;
-	vec3* vel;
+	World *world;
+	Model *model;
 } Device;
+
+void Device_BreakBlock(Device *device);

@@ -127,7 +127,7 @@ static void GenerateChunk(Chunk* chunk)
 	int cz = chunk->coords[2];
 	int minY = cy * 64;
 	float p = 0.0f;
-	NoiseMaker* nm = chunk->world->noiseMaker;
+	NoiseMaker* nm = &chunk->world->noiseMaker;
 
 	uint8_t* noise2D = Noise_Generate2D(nm, cx, cz, &p);
 	//uint8_t* noise3D = Noise_Generate3D(nm, cx, cy, cz, &p);
@@ -494,6 +494,7 @@ void World_Init(World* world)
 {
 	Uint32 ticks = SDL_GetTicks();
 
+	world->folderPath = "res/world/debug";
 	world->mutex = SDL_CreateMutex();
 	world->visibleDistance = 3;
 	world->lodDistance = 1;

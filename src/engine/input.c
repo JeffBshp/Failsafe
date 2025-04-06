@@ -13,181 +13,16 @@
 #include "world.h"
 #include "utility.h"
 #include "compress.h"
-
-// gets a unit-vector based on directional keyboard keys, relative to the camera's direction
-static void GetMoveVector(Camera* cam, vec3 dest, bool up, bool down, bool left, bool right, bool fwd, bool back)
-{
-	glm_vec3_zero(dest);
-
-	if (up)
-		glm_vec3_add(dest, cam->up, dest);
-	else if (down)
-		glm_vec3_sub(dest, cam->up, dest);
-
-	if (left)
-		glm_vec3_sub(dest, cam->right, dest);
-	else if (right)
-		glm_vec3_add(dest, cam->right, dest);
-
-	if (fwd)
-		glm_vec3_add(dest, cam->front, dest);
-	else if (back)
-		glm_vec3_sub(dest, cam->front, dest);
-
-	glm_vec3_normalize(dest);
-}
-
-static void CheckChunks(GameState* gs)
-{
-	Camera* cam = gs->cam;
-	int x = (int)floorf(cam->pos[0]);
-	int y = (int)floorf(cam->pos[1]);
-	int z = (int)floorf(cam->pos[2]);
-	int wX = gs->world->visibleCenter[0] * 64;
-	int wY = gs->world->visibleCenter[1] * 64;
-	int wZ = gs->world->visibleCenter[2] * 64;
-	int dir = -1;
-
-	if (x < wX) dir = 0;
-	else if (x >= wX + 64) dir = 1;
-	else if (y < wY) dir = 2;
-	else if (y >= wY + 64) dir = 3;
-	else if (z < wZ) dir = 4;
-	else if (z >= wZ + 64) dir = 5;
-
-	if (dir >= 0)
-	{
-		ivec3 p;
-		p[0] = x;
-		p[1] = y;
-		p[2] = z;
-		World_UpdatePosition(gs->world, p);
-	}
-
-	Mesher_MeshWorld(gs->world);
-}
-
-void Input_Update(InputState* key, GameState* gs)
-{
-	Uint32 ticks = SDL_GetTicks();
-	int waitTicks = gs->lastTicks + FRAME_TARGET_TIME - ticks;
-
-	if (waitTicks > 0)
-	{
-		SDL_Delay(waitTicks);
-		ticks = SDL_GetTicks();
-	}
-
-	float deltaTime = (ticks - gs->lastTicks) / 1000.0f;
-	gs->lastTicks = ticks;
-
-	if (ticks - gs->lastSecondTicks > 1000.0f)
-	{
-		gs->lastSecondTicks = ticks;
-	}
-
-	// controls and camera movement
-	if (!gs->codeTextBox->focused)
-	{
-		// move the camera with wsad/space/lshift
-		vec3 move;
-		GetMoveVector(gs->cam, move, key->space, key->lshift, key->a, key->d, key->w, key->s);
-
-		float accel = 6.0f;
-		if (key->gravity)
-		{
-			move[1] -= 1.6f;
-			accel = 3.0f;
-		}
-
-		glm_vec3_scale(move, accel * deltaTime, move); // scale acceleration by dt
-		glm_vec3_add(gs->cam->vel, move, gs->cam->vel); // apply acceleration to velocity
-		glm_vec3_scale(gs->cam->vel, 0.9f, gs->cam->vel); // scale down for pseudo-drag
-
-		// round small velocities to zero
-		if (fabsf(gs->cam->vel[0]) < 0.001f) gs->cam->vel[0] = 0.0f;
-		if (fabsf(gs->cam->vel[1]) < 0.001f) gs->cam->vel[1] = 0.0f;
-		if (fabsf(gs->cam->vel[2]) < 0.001f) gs->cam->vel[2] = 0.0f;
-
-		if (key->gravity)
-			Physics_MoveAabbThroughVoxels(gs->world, gs->cam->pos, gs->cam->width, gs->cam->vel);
-		else
-			glm_vec3_add(gs->cam->pos, gs->cam->vel, gs->cam->pos);
-
-		// prevent falling into the abyss
-		if (gs->cam->pos[1] < -1000.0f)
-		{
-			gs->cam->pos[1] = 100.0f;
-			glm_vec3_zero(gs->cam->vel);
-		}
-
-		// move the selected object with ikjluo
-		GetMoveVector(gs->cam, move, key->i, key->k, key->j, key->l, key->u, key->o);
-		glm_vec3_scale(move, 2.0f * deltaTime, move); // scale acceleration by dt
-		glm_vec3_add(gs->currentModel->vel, move, gs->currentModel->vel); // apply acceleration to velocity
-	}
-
-	// object movement
-	for (int i = 0; i < gs->numShapes; i++)
-	{
-		Shape* shape = gs->shapes + i;
-
-		for (int j = 0; j < shape->numModels; j++)
-		{
-			Model* model = shape->models + j;
-
-			if (model->isFixed) continue;
-
-			// update velocity and position
-			float dy = -1.6f * 1.0f * deltaTime;
-			if (key->gravity) model->vel[1]+= dy;
-			float f = 1.0f - (1.0f / (model->mass * 2.0f));
-			glm_vec3_scale(model->vel, f, model->vel);			// apply drag
-			if (key->gravity)
-			{
-				vec3 width;
-				width[0] = width[1] = width[2] = model->radius * 2.0f;
-				Physics_MoveAabbThroughVoxels(gs->world, model->pos, width, model->vel);
-			}
-			else
-			{
-				glm_vec3_add(model->pos, model->vel, model->pos);
-			}
-
-			// rotate over time
-			model->rot[0] += 0.1 * deltaTime;
-			model->rot[1] += 0.2 * deltaTime;
-			model->rot[2] += 0.3 * deltaTime;
-		}
-	}
-
-	vec3 camPos;
-	ivec3 camLocal;
-	camPos[0] = gs->cam->pos[0] - (gs->cam->width[0] / 2.0f);
-	camPos[1] = gs->cam->pos[1] - (gs->cam->width[1] / 2.0f);
-	camPos[2] = gs->cam->pos[2] - (gs->cam->width[2] / 2.0f);
-	GetIntCoords(camPos, camLocal);
-	Chunk* chunk = World_GetChunkAndCoords(gs->world, camLocal, camLocal);
-
-	snprintf(gs->hudTextBox->text, gs->hudTextBox->nCols * gs->hudTextBox->nRows,
-		"Chunk  (%5d, %5d, %5d  )\nLocal  (%5d, %5d, %5d  )\nGlobal (  %5.1f, %5.1f, %5.1f)\nVel    (  %5.1f, %5.1f, %5.1f)\n%d regions / %d chunks",
-		chunk->coords[0], chunk->coords[1], chunk->coords[2],
-		camLocal[0], camLocal[1], camLocal[2],
-		camPos[0], camPos[1], camPos[2],
-		gs->cam->vel[0], gs->cam->vel[1], gs->cam->vel[2],
-		gs->world->regions.size, gs->world->allChunks.size);
-
-	Physics_Collide(gs->shapes, gs->numShapes);
-	Editor_Update(gs->codeTextBox, ticks);
-	Editor_Update(gs->hudTextBox, ticks);
-	Camera_UpdateVectors(gs->cam);
-	CheckChunks(gs);
-}
+#include "../hardware/device.h"
+#include "../hardware/memory.h"
+#include "../hardware/processor.h"
+#include "../language/parser.h"
+#include "../language/compiler.h"
 
 static void SelectSphere(GameState* gs, int next)
 {
-	Shape* shape = gs->shapes + 0;
-	int i = gs->currentModel - shape->models;
+	Shape* shape = gs->render->shapes + 0;
+	int i = gs->selectedObject - shape->models;
 	int n = shape->numModels;
 	shape->instanceData[i * 17] = TEX_WHITE;
 
@@ -195,13 +30,51 @@ static void SelectSphere(GameState* gs, int next)
 	if (i >= n) i = n - 1;
 	else if (i <= 0) i = 0;
 
-	gs->currentModel = shape->models + i;
+	gs->selectedObject = shape->models + i;
 
 	if (next != 0) shape->instanceData[i * 17] = TEX_BLUE;
 }
 
-static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
+static void RunProgram(GameState *gs)
 {
+	Processor *processor = gs->codeDemoProcessor;
+
+	if (processor->halt)
+	{
+		printf("Compile Program...\n");
+
+		// Save the source code
+		Editor_SaveToFile(gs->codeTextBox, gs->programFilePath);
+		// Parse and compile the virtual program
+		SyntaxTree *ast = Parser_ParseFile(gs->programFilePath);
+		Program *program = Compiler_GenerateCode(ast);
+
+		if (program->status == COMPILE_SUCCESS)
+		{
+			printf("Run Program...\n");
+			memcpy(processor->memory.data, program->bin, program->length * sizeof(uword)); // Load program into virtual memory
+			Memory_WriteFile(processor->memory, "res/code/example.mem"); // Save the raw binary to a file
+			Processor_Reset(processor, program->mainAddress, 1024); // Set the addresses of the program and the stack
+			processor->halt = false;
+		}
+		else
+		{
+			printf("Compile Error: %d\n", program->status);
+		}
+
+		Compiler_Destroy(program);
+		Parser_Destroy(ast);
+	}
+	else
+	{
+		printf("Halt!\n");
+		processor->halt = true;
+	}
+}
+
+static void HandleKeyDown(GameState *gs, SDL_KeyCode sym)
+{
+	InputState *key = gs->input;
 	Uint32 windowFlags;
 
 	switch (sym)
@@ -210,7 +83,7 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 		if (gs->codeTextBox->focused)
 			gs->codeTextBox->focused = false;
 		else
-			key->running = false;
+			gs->running = false;
 		break;
 
 	// easier way to release the mouse than Alt+Tab
@@ -245,7 +118,7 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 		break;
 	case SDLK_g:
 		key->g = true;
-		key->gravity = !key->gravity;
+		gs->gravity = !gs->gravity;
 		break;
 	case SDLK_f:
 		key->f = true;
@@ -296,7 +169,7 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 		break;
 	case SDLK_RCTRL:
 		key->rctrl = true;
-		glm_vec3_zero(gs->currentModel->vel);
+		glm_vec3_zero(gs->selectedObject->vel);
 		break;
 
 	case SDLK_z:
@@ -309,30 +182,24 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 		break;
 	case SDLK_c:
 		key->c = true;
-		gs->currentModel->mass *= 10.0f;
+		gs->selectedObject->mass *= 10.0f;
 		break;
 	case SDLK_v:
 		SelectSphere(gs, 0);
-		gs->currentModel = Shape_AddModel(gs->shapes + 0);
+		gs->selectedObject = Shape_AddModel(gs->render->shapes + 0);
 		break;
 	case SDLK_b:
 		break;
 
 	case SDLK_RETURN:
-		if (*(gs->processorHalt)) gs->runProgram = true;
-		else
-		{
-			printf("Halt!\n");
-			gs->runProgram = false;
-			*(gs->processorHalt) = true;
-		}
+		RunProgram(gs);
 		break;
 	case SDLK_SPACE:
 		key->space = true;
-		if (key->gravity)
+		if (gs->gravity)
 		{
-			gs->cam->pos[1] += 0.2;
-			gs->cam->vel[1] = 1.2;
+			gs->render->camera.pos[1] += 0.2;
+			gs->render->camera.vel[1] = 1.2;
 		}
 		break;
 	case SDLK_LSHIFT:
@@ -340,7 +207,7 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 		break;
 	case SDLK_LCTRL:
 		key->lctrl = true;
-		glm_vec3_zero(gs->currentModel->vel);
+		glm_vec3_zero(gs->selectedObject->vel);
 		break;
 
 	case SDLK_LALT:
@@ -349,16 +216,18 @@ static void HandleKeyDown(InputState* key, GameState* gs, SDL_KeyCode sym)
 		break;
 
 	case SDLK_F11:
-		windowFlags = SDL_GetWindowFlags(gs->window);
+		windowFlags = SDL_GetWindowFlags(gs->render->window);
 		if ((windowFlags & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) windowFlags = 0;
 		else windowFlags = SDL_WINDOW_FULLSCREEN_DESKTOP;
-		SDL_SetWindowFullscreen(gs->window, windowFlags);
+		SDL_SetWindowFullscreen(gs->render->window, windowFlags);
 		break;
 	}
 }
 
-static void HandleKeyUp(InputState* key, GameState* gs, SDL_KeyCode sym)
+static void HandleKeyUp(GameState *gs, SDL_KeyCode sym)
 {
+	InputState *key = gs->input;
+
 	switch (sym)
 	{
 	case SDLK_w:
@@ -461,27 +330,28 @@ static void HandleKeyUp(InputState* key, GameState* gs, SDL_KeyCode sym)
 static void HandleMouseMotion(SDL_MouseMotionEvent e, GameState* gs)
 {
 	const float sens = 0.4f;
-	gs->cam->rot[0] += e.xrel * sens;
-	gs->cam->rot[1] -= e.yrel * sens;
+	Camera *cam = &gs->render->camera;
+	cam->rot[0] += e.xrel * sens;
+	cam->rot[1] -= e.yrel * sens;
 }
 
 static void HandleMouseDown(SDL_MouseButtonEvent e, GameState* gs)
 {
 	ivec3 wPos;
+	Camera *cam = &gs->render->camera;
 
 	switch (e.button)
 	{
 	case 1:
-		GetIntCoords(gs->cam->pos, wPos);
-		wPos[1] -= (gs->cam->width[1] / 2);
+		GetIntCoords(cam->pos, wPos);
+		wPos[1] -= (cam->width[1] / 2);
 		World_SetBlock(gs->world, wPos, BLOCK_WOOD);
 		Mesher_MeshWorld(gs->world);
-		gs->buffer = true;
 		break;
 	}
 }
 
-void Input_HandleInput(InputState* key, GameState* gs)
+void Input_Poll(GameState* gs)
 {
 	SDL_Event ev;
 
@@ -491,7 +361,7 @@ void Input_HandleInput(InputState* key, GameState* gs)
 		{
 		case SDL_QUIT:
 			printf("EVENT: SDL_QUIT\n");
-			key->running = false;
+			gs->running = false;
 			break;
 		case SDL_KEYDOWN:
 			if (ev.key.repeat == 0)
@@ -502,11 +372,11 @@ void Input_HandleInput(InputState* key, GameState* gs)
 					else
 						Editor_Edit(gs->codeTextBox, ev.key.keysym);
 				else
-					HandleKeyDown(key, gs, ev.key.keysym.sym);
+					HandleKeyDown(gs, ev.key.keysym.sym);
 			}
 			break;
 		case SDL_KEYUP:
-			HandleKeyUp(key, gs, ev.key.keysym.sym);
+			HandleKeyUp(gs, ev.key.keysym.sym);
 			break;
 		case SDL_MOUSEMOTION:
 			HandleMouseMotion(ev.motion, gs);

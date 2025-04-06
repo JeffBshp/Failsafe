@@ -19,6 +19,16 @@ void EnumSetFlag(int* flags, int flag, bool set)
 	*flags &= flag;
 }
 
+// Reads a file as a string into a buffer. Ensures the string is null-terminated.
+size_t ReadWholeFile(const char *path, char* buffer, int max)
+{
+	FILE* file = fopen(path, "r");
+	size_t n = fread(buffer, sizeof(char), max - 1, file);
+	buffer[n] = '\0';
+	fclose(file);
+	return n;
+}
+
 void ListUInt64Init(ListUInt64* list, size_t capacity)
 {
 	const size_t numBytes = capacity * sizeof(uint64_t);
@@ -57,12 +67,6 @@ uint64_t ListUInt64Pop(ListUInt64* list)
 	if (list->size > 0) return list->values[--list->size];
 
 	return 0;
-}
-
-void ProgressPrint(char* text, size_t n, Progress* prog)
-{
-	snprintf(text, n, "%s%.1f%%\n%s%.1f%%\n",
-		prog->message1, prog->percent1, prog->message2, prog->percent2);
 }
 
 // truncates vec3 to ivec3

@@ -16,6 +16,9 @@
 #include "editor.h"
 #include "utility.h"
 #include "mesher.h"
+#include "../hardware/device.h"
+#include "../hardware/memory.h"
+#include "../hardware/processor.h"
 
 static void LoadTextureArray(GLuint texture, const char* filePath, int nCols, int nRows)
 {
@@ -65,37 +68,163 @@ static void LoadTextureArray(GLuint texture, const char* filePath, int nCols, in
 	stbi_image_free(textureBytes);
 }
 
-static void LoadTextures(GameState* gs)
+static void LoadTextures(RenderState* rs)
 {
 	enum { buffLen = 30 };
 	char filePath[buffLen];
-	int n = gs->numTextures;
+	int n = rs->numTextures;
 
 	// generate GL texture IDs
-	glGenTextures(n, gs->textures);
+	glGenTextures(n, rs->textures);
 	// all textures will use the default "texture unit", which is zero
 	glActiveTexture(GL_TEXTURE0);
 	// map the currently bound texture to the shader (0 means GL_TEXTURE0)
-	glUniform1i(glGetUniformLocation(gs->basicShader, "textureSampler"), 0);
-	glUniform1i(glGetUniformLocation(gs->chunkShader, "textureSampler"), 0);
+	glUniform1i(glGetUniformLocation(rs->basicShader, "textureSampler"), 0);
+	glUniform1i(glGetUniformLocation(rs->chunkShader, "textureSampler"), 0);
 
 	// TODO: font.png also contains other textures
-	LoadTextureArray(gs->textures[8], "res/font/font.png", 32, 20);
+	LoadTextureArray(rs->textures[8], "res/font/font.png", 32, 20);
 	printf("Loaded the texture array.\n");
 
 	// unbind
 	glBindTexture(GL_TEXTURE_2D, 0);
 }
 
-static void InitShapeBuffer(GameState* gs, int shapeIndex)
+static bool InitSDL(RenderState* rs)
 {
-	Shape* shape = gs->shapes + shapeIndex;
+	if (SDL_Init(SDL_INIT_VIDEO) < 0)
+	{
+		printf("ERROR: SDL_Init\n");
+		printf(SDL_GetError());
+		return false;
+	}
+
+	printf("Initialized SDL.\n");
+
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5);
+	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+
+	const int width = 1920;
+	const int height = 1080;
+	Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
+	rs->window = SDL_CreateWindow("Game", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, windowFlags);
+	rs->glContext = SDL_GL_CreateContext(rs->window);
+
+	if (!rs->window || !rs->glContext)
+	{
+		printf("ERROR: Could not create an OpenGL window.\n");
+		printf(SDL_GetError());
+		return false;
+	}
+
+	printf("Created OpenGL window.\n");
+	return true;
+}
+
+static bool InitGLEW(RenderState* rs)
+{
+	GLenum glewError = glewInit();
+	if (glewError != GLEW_OK)
+	{
+		printf("ERROR: glewInit\n");
+		printf(glewGetErrorString(glewError));
+		return false;
+	}
+
+	printf("Initialized GLEW.\n");
+
+	int shaderProgramId = Shader_LoadBasicShaders("./res/glsl/vertex.glsl", "./res/glsl/fragment.glsl");
+	if (shaderProgramId < 0)
+	{
+		printf("ERROR: Could not load basic shaders.\n");
+		return false;
+	}
+	else
+	{
+		rs->basicShader = shaderProgramId;
+		glUseProgram(rs->basicShader);
+	}
+
+	shaderProgramId = Shader_LoadVoxelShaders("./res/glsl/cVert.glsl", "./res/glsl/cGeom.glsl", "./res/glsl/cFrag.glsl");
+	if (shaderProgramId < 0)
+	{
+		printf("ERROR: Could not load chunk shaders.\n");
+		return false;
+	}
+	else
+	{
+		rs->chunkShader = shaderProgramId;
+	}
+
+	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_CULL_FACE);
+
+	glEnable(GL_TEXTURE_2D);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	printf("Loaded shaders.\n");
+	return true;
+}
+
+static bool InitStateObject(RenderState *rs)
+{
+	// TODO: use a dynamic list or something for textures and shapes
+	rs->numTextures = 9;
+	// spheres, planes, text box, loading text
+	// TODO: keep track of objects properly, not with magical indexing
+	rs->numShapes = 4;
+
+	// allocate memory for lists
+	size_t glObjListSize = sizeof(GLuint) * rs->numShapes;
+	size_t glTexListSize = sizeof(GLuint) * rs->numTextures;
+	size_t shapeListSize = sizeof(Shape) * rs->numShapes;
+	size_t totalSize = (4 * glObjListSize) + glTexListSize + shapeListSize;
+	void* rawMem = calloc(1, totalSize);
+
+	if (rawMem == NULL) return false;
+
+	// set pointers within the allocated space
+	rs->VAO = rawMem;
+	rs->VBO = rs->VAO + rs->numShapes;
+	rs->IBO = rs->VBO + rs->numShapes;
+	rs->EBO = rs->IBO + rs->numShapes;
+	rs->textures = rs->EBO + rs->numShapes;
+	rs->shapes = (void*)(rs->textures + rs->numTextures);
+
+	// generate IDs for the Vertex Array Objects
+	glGenVertexArrays(rs->numShapes, rs->VAO);
+	glGenBuffers(rs->numShapes, rs->VBO);
+	glGenBuffers(rs->numShapes, rs->IBO);
+	glGenBuffers(rs->numShapes, rs->EBO);
+	printf("Initialized GL arrays.\n");
+
+	LoadTextures(rs);
+	Camera_Init(&rs->camera);
+
+	return true;
+}
+
+bool Render_Init(RenderState* rs)
+{
+	if (!InitSDL(rs)) return false;
+	if (!InitGLEW(rs)) return false;
+	if (!InitStateObject(rs)) return false;
+
+	return true;
+}
+
+static void InitShapeBuffer(RenderState* rs, int shapeIndex)
+{
+	Shape* shape = rs->shapes + shapeIndex;
 
 	// create and bind the VAO
-	glBindVertexArray(gs->VAO[shapeIndex]);
+	glBindVertexArray(rs->VAO[shapeIndex]);
 
 	// vertex buffer: contains vertex and texture coords
-	glBindBuffer(GL_ARRAY_BUFFER, gs->VBO[shapeIndex]);
+	glBindBuffer(GL_ARRAY_BUFFER, rs->VBO[shapeIndex]);
 	glBufferData(GL_ARRAY_BUFFER, shape->numVertices * sizeof(GLfloat), shape->vertices, GL_STATIC_DRAW);
 	GLsizei stride = 5 * sizeof(GLfloat);
 
@@ -109,7 +238,7 @@ static void InitShapeBuffer(GameState* gs, int shapeIndex)
 
 	// instance buffer: contains per-instance texture index and model transformation matrix
 	// therefore each instance of the same shape, in the same draw call, can have a different texture and transformation
-	glBindBuffer(GL_ARRAY_BUFFER, gs->IBO[shapeIndex]);
+	glBindBuffer(GL_ARRAY_BUFFER, rs->IBO[shapeIndex]);
 	stride = MODEL_INSTANCE_SIZE;
 
 	// texture index: basically another tex coord in the third dimension because a texture array is used
@@ -132,29 +261,29 @@ static void InitShapeBuffer(GameState* gs, int shapeIndex)
 	glVertexAttribDivisor(6, 1);
 
 	// index buffer: contains vertex indices, reducing the data to be buffered on the GPU
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gs->EBO[shapeIndex]);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, rs->EBO[shapeIndex]);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, shape->numIndices * sizeof(GLushort), shape->indices, GL_STATIC_DRAW);
 
 	glBindVertexArray(0); // unbind
 }
 
 // initializes OpenGL buffers
-static void InitBuffers(GameState* gs)
+void Render_InitBuffers(RenderState* rs)
 {
 	const int n = 4;
-	for (int i = 0; i < n; i++) InitShapeBuffer(gs, i);
-	printf("Initialized main buffers.\n");
+	for (int i = 0; i < n; i++) InitShapeBuffer(rs, i);
+	printf("Initialized shape buffers.\n");
 
-	glGenVertexArrays(1, &gs->chunkBAO);
-	glGenBuffers(1, &gs->chunkBBO);
-	glGenBuffers(1, &gs->chunkQBO);
-	glBindVertexArray(gs->chunkBAO);
+	glGenVertexArrays(1, &rs->chunkBAO);
+	glGenBuffers(1, &rs->chunkBBO);
+	glGenBuffers(1, &rs->chunkQBO);
+	glBindVertexArray(rs->chunkBAO);
 
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER, gs->chunkBBO);
-	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, gs->chunkBBO);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, rs->chunkBBO);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, rs->chunkBBO);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-	glBindBuffer(GL_ARRAY_BUFFER, gs->chunkQBO);
+	glBindBuffer(GL_ARRAY_BUFFER, rs->chunkQBO);
 	glEnableVertexAttribArray(0);
 	glVertexAttribIPointer(0, 1, GL_UNSIGNED_INT, 2 * sizeof(GLuint), (GLvoid*)0);
 	glEnableVertexAttribArray(1);
@@ -162,217 +291,39 @@ static void InitBuffers(GameState* gs)
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 	glBindVertexArray(0);
-
 	printf("Initialized voxel buffers.\n");
 }
 
-static bool InitSDL(GameState* gs)
-{
-	if (SDL_Init(SDL_INIT_VIDEO) < 0)
-	{
-		printf("ERROR: SDL_Init\n");
-		printf(SDL_GetError());
-		return false;
-	}
-
-	printf("Initialized SDL.\n");
-
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5);
-	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-
-	const int width = 1920;
-	const int height = 1080;
-	Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
-	gs->window = SDL_CreateWindow("Game", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, windowFlags);
-	gs->glContext = SDL_GL_CreateContext(gs->window);
-	//gs->renderer = SDL_CreateRenderer(gs->window, -1, SDL_RENDERER_TARGETTEXTURE);
-
-	if (!gs->window || !gs->glContext)// || !gs->renderer)
-	{
-		printf("ERROR: Could not create an OpenGL window.\n");
-		printf(SDL_GetError());
-		return false;
-	}
-
-	//SDL_SetHint(SDL_HINT_GRAB_KEYBOARD, "1");
-	//SDL_SetWindowGrab(gs->window, SDL_TRUE);
-
-	//SDL_SetRelativeMouseMode(SDL_TRUE);
-
-	//SDL_ShowCursor(SDL_DISABLE);
-
-	printf("Created OpenGL window.\n");
-	return true;
-}
-
-static bool InitGLEW(GameState* gs)
-{
-	GLenum glewError = glewInit();
-	if (glewError != GLEW_OK)
-	{
-		printf("ERROR: glewInit\n");
-		printf(glewGetErrorString(glewError));
-		return false;
-	}
-
-	printf("Initialized GLEW.\n");
-
-	int shaderProgramId = Shader_LoadBasicShaders("./res/glsl/vertex.glsl", "./res/glsl/fragment.glsl");
-	if (shaderProgramId < 0)
-	{
-		printf("ERROR: Could not load basic shaders.\n");
-		return false;
-	}
-	else
-	{
-		gs->basicShader = shaderProgramId;
-		glUseProgram(gs->basicShader);
-	}
-
-	shaderProgramId = Shader_LoadVoxelShaders("./res/glsl/cVert.glsl", "./res/glsl/cGeom.glsl", "./res/glsl/cFrag.glsl");
-	if (shaderProgramId < 0)
-	{
-		printf("ERROR: Could not load chunk shaders.\n");
-		return false;
-	}
-	else
-	{
-		gs->chunkShader = shaderProgramId;
-	}
-
-	glEnable(GL_DEPTH_TEST);
-	glEnable(GL_CULL_FACE);
-
-	glEnable(GL_TEXTURE_2D);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-	printf("Loaded shaders.\n");
-	return true;
-}
-
-// gets the game to a point where it can start rendering things
-static bool InitStateObject(GameState* gs)
-{
-	// TODO: use a dynamic list or something for textures and shapes
-	gs->numTextures = 9;
-	// spheres, planes, text box, loading text
-	// TODO: keep track of objects properly, not with magical indexing
-	gs->numShapes = 4;
-
-	// allocate memory for lists
-	size_t glObjListSize = sizeof(GLuint) * gs->numShapes;
-	size_t glTexListSize = sizeof(GLuint) * gs->numTextures;
-	size_t shapeListSize = sizeof(Shape) * gs->numShapes;
-	size_t totalSize = (4 * glObjListSize) + glTexListSize + shapeListSize;
-	void* rawMem = malloc(totalSize);
-
-	if (rawMem == NULL) return false;
-
-	memset(rawMem, 0, totalSize);
-
-	// set pointers within the allocated space
-	gs->VAO = rawMem;
-	gs->VBO = gs->VAO + gs->numShapes;
-	gs->IBO = gs->VBO + gs->numShapes;
-	gs->EBO = gs->IBO + gs->numShapes;
-	gs->textures = gs->EBO + gs->numShapes;
-	gs->shapes = (void*)(gs->textures + gs->numTextures);
-	printf("Initialized arrays.\n");
-
-	Camera_Init(gs->cam);
-	gs->lastTicks = 0;
-	gs->lastSecondTicks = 0;
-
-	return true;
-}
-
-static size_t ReadProgramFile(char* buffer, int max)
-{
-	FILE* file = fopen("res/code/example.txt", "r");
-	size_t n = fread(buffer, sizeof(char), max, file);
-	fclose(file);
-	return n;
-}
-
-bool Render_Init(GameState* gs)
-{
-	if (!InitSDL(gs)) return false;
-	if (!InitGLEW(gs)) return false;
-	if (!InitStateObject(gs)) return false;
-
-	// create game objects
-	World_Init(gs->world);
-	Shape_MakeSphere(gs->shapes + 0, 3);
-	Shape_MakePlane(gs->shapes + 1);
-	char initialText[5000];
-	size_t n = ReadProgramFile(initialText, 5000);
-	initialText[n] = '\0';
-	int nCols = 75, nRows = 50;
-	gs->codeTextBox = Shape_MakeTextBox(gs->shapes + 2, nCols, nRows, true, initialText);
-	gs->codeTextBox->i = n - 1;
-	gs->currentModel = gs->shapes[0].models + 2;
-	gs->shapes[0].instanceData[17 * 2] = TEX_BLUE;
-	nCols = 60; nRows = 10;
-	gs->hudTextBox = Shape_MakeTextBox(gs->shapes + 3, nCols, nRows, false, NULL);
-	gs->hudTextBox->texOffset = TEX_SET2;
-	glm_translate((void*)(gs->hudTextBox->shape->groupMat), (vec3) { 30.0f, 0.0f, -30.0f });
-	printf("Created shapes.\n");
-
-	// generate IDs for the Vertex Array Objects
-	glGenVertexArrays(gs->numShapes, gs->VAO);
-	glGenBuffers(gs->numShapes, gs->VBO);
-	glGenBuffers(gs->numShapes, gs->IBO);
-	glGenBuffers(gs->numShapes, gs->EBO);
-	LoadTextures(gs);
-	InitBuffers(gs);
-	printf("Initialized renderer.\n");
-
-	return true;
-}
-
 // TODO: make sure this destroys everything
-void Render_Destroy(GameState* gs)
+void Render_Destroy(RenderState* rs)
 {
-	if (gs == NULL)
-		return;
+	if (rs == NULL) return;
 
-	gs->world->alive = false;
+	glDeleteVertexArrays(rs->numShapes, rs->VAO);
+	glDeleteBuffers(rs->numShapes, rs->VBO);
+	glDeleteBuffers(rs->numShapes, rs->IBO);
+	glDeleteBuffers(rs->numShapes, rs->EBO);
+	glDeleteVertexArrays(1, &rs->chunkBAO);
+	glDeleteBuffers(1, &rs->chunkBBO);
+	glDeleteBuffers(1, &rs->chunkQBO);
+	glDeleteTextures(rs->numTextures, rs->textures);
+	glDeleteProgram(rs->basicShader);
+	glDeleteProgram(rs->chunkShader);
+	free(rs->VAO); // also frees VBO, IBO, EBO, textures, and shapes
 
-	Shape_FreeTextBox(gs->codeTextBox);
-	Shape_FreeTextBox(gs->hudTextBox);
-
-	for (int i = 0; i < gs->numShapes; i++)
-	{
-		Shape_FreeShape(gs->shapes + i);
-	}
-
-	glDeleteVertexArrays(gs->numShapes, gs->VAO);
-	glDeleteBuffers(gs->numShapes, gs->VBO);
-	glDeleteBuffers(gs->numShapes, gs->IBO);
-	glDeleteBuffers(gs->numShapes, gs->EBO);
-	glDeleteVertexArrays(1, &gs->chunkBAO);
-	glDeleteBuffers(1, &gs->chunkBBO);
-	glDeleteBuffers(1, &gs->chunkQBO);
-	glDeleteTextures(gs->numTextures, gs->textures);
-	glDeleteProgram(gs->basicShader);
-	free(gs->VAO); // also frees VBO, IBO, EBO, textures, and shapes
-
-	SDL_GL_DeleteContext(gs->glContext);
-	SDL_DestroyWindow(gs->window);
+	SDL_GL_DeleteContext(rs->glContext);
+	SDL_DestroyWindow(rs->window);
 
 	printf("Renderer destroyed.\n");
 }
 
 // Sets the GL viewport while maintaining aspect ratio.
 // Calculates the projection and view matrices.
-static void SetViewport(GameState *gs)
+static void SetViewport(RenderState *rs)
 {
 	const float ratio = 0.5625f; // 1080/1920
 	int wWidth, wHeight, offsetX, offsetY;
-	SDL_GL_GetDrawableSize(gs->window, &wWidth, &wHeight);
+	SDL_GL_GetDrawableSize(rs->window, &wWidth, &wHeight);
 
 	if ((float)wHeight / (float)wWidth > ratio)
 	{
@@ -391,48 +342,49 @@ static void SetViewport(GameState *gs)
 
 	glViewport(offsetX, offsetY, wWidth, wHeight);
 
-	glm_mat4_identity(gs->matProj);
-	glm_perspective(45.0f, (GLfloat)wWidth / (GLfloat)wHeight, 0.1f, 2000.0f, gs->matProj);
+	glm_mat4_identity(rs->matProj);
+	glm_perspective(45.0f, (GLfloat)wWidth / (GLfloat)wHeight, 0.1f, 2000.0f, rs->matProj);
 
-	glm_mat4_identity(gs->matView);
-	Camera_GetViewMatrix(gs->cam, gs->matView);
+	glm_mat4_identity(rs->matView);
+	Camera_GetViewMatrix(&rs->camera, rs->matView);
 }
 
 // Draws everything for one frame.
 void Render_Draw(GameState *gs)
 {
+	RenderState *rs = gs->render;
 	glClearColor(0.4f, 0.6f, 0.8f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glLoadIdentity();
-	SetViewport(gs);
+	SetViewport(rs);
 
-	glUseProgram(gs->basicShader);
-	GLint projLoc = glGetUniformLocation(gs->basicShader, "ourProj");
-	glUniformMatrix4fv(projLoc, 1, GL_FALSE, (void*)(gs->matProj));
-	GLint viewLoc = glGetUniformLocation(gs->basicShader, "ourView");
-	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, (void*)(gs->matView));
-	glBindTexture(GL_TEXTURE_2D, gs->textures[8]);
+	glUseProgram(rs->basicShader);
+	GLint projLoc = glGetUniformLocation(rs->basicShader, "ourProj");
+	glUniformMatrix4fv(projLoc, 1, GL_FALSE, (void*)(rs->matProj));
+	GLint viewLoc = glGetUniformLocation(rs->basicShader, "ourView");
+	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, (void*)(rs->matView));
+	glBindTexture(GL_TEXTURE_2D, rs->textures[8]);
 
 	vec3 scale = { 0, 0, 0 };
 
-	for (int i = 0; i < gs->numShapes; i++)
+	for (int i = 0; i < rs->numShapes; i++)
 	{
-		Shape* shape = gs->shapes + i;
+		Shape* shape = rs->shapes + i;
 
 		if (i == 3)
 		{
 			void* groupMatrix = shape->groupMat;
 			glm_mat4_identity(groupMatrix);
-			glm_translate(groupMatrix, gs->cam->pos);
-			glm_rotate_y(groupMatrix, glm_rad(-gs->cam->rot[0]), groupMatrix);
-			glm_rotate_z(groupMatrix, glm_rad(gs->cam->rot[1]), groupMatrix);
+			glm_translate(groupMatrix, rs->camera.pos);
+			glm_rotate_y(groupMatrix, glm_rad(-rs->camera.rot[0]), groupMatrix);
+			glm_rotate_z(groupMatrix, glm_rad(rs->camera.rot[1]), groupMatrix);
 			glm_translate(groupMatrix, (vec3) { 1.0, 0.5, -0.95 });
 			float s = 0.01;
 			glm_scale(groupMatrix, (vec3) { s, s, s });
 		}
 
 		// bind the VAO of the current shape
-		glBindVertexArray(gs->VAO[i]);
+		glBindVertexArray(rs->VAO[i]);
 
 		// apply transformations to each model instance
 		for (int j = 0; j < shape->numModels; j++)
@@ -459,20 +411,20 @@ void Render_Draw(GameState *gs)
 		}
 
 		// re-buffer the instance data because transformations may have changed
-		glBindBuffer(GL_ARRAY_BUFFER, gs->IBO[i]);
+		glBindBuffer(GL_ARRAY_BUFFER, rs->IBO[i]);
 		glBufferData(GL_ARRAY_BUFFER, shape->numModels * MODEL_INSTANCE_SIZE, shape->instanceData, GL_DYNAMIC_DRAW);
 
 		// draw all instances of the current shape
 		glDrawElementsInstanced(GL_TRIANGLES, shape->numIndices, GL_UNSIGNED_SHORT, 0, shape->numModels);
 	}
 
-	glUseProgram(gs->chunkShader);
-	projLoc = glGetUniformLocation(gs->chunkShader, "ourProj");
-	glUniformMatrix4fv(projLoc, 1, GL_FALSE, (void*)(gs->matProj));
-	viewLoc = glGetUniformLocation(gs->chunkShader, "ourView");
-	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, (void*)(gs->matView));
-	glBindTexture(GL_TEXTURE_2D, gs->textures[8]);
-	glBindVertexArray(gs->chunkBAO);
+	glUseProgram(rs->chunkShader);
+	projLoc = glGetUniformLocation(rs->chunkShader, "ourProj");
+	glUniformMatrix4fv(projLoc, 1, GL_FALSE, (void*)(rs->matProj));
+	viewLoc = glGetUniformLocation(rs->chunkShader, "ourView");
+	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, (void*)(rs->matView));
+	glBindTexture(GL_TEXTURE_2D, rs->textures[8]);
+	glBindVertexArray(rs->chunkBAO);
 	const size_t numBlocks = 64 * 64 * 64;
 	ListUInt64 chunkList = gs->world->allChunks;
 
@@ -501,18 +453,16 @@ void Render_Draw(GameState *gs)
 		scale[0] = scale[1] = scale[2] = chunkScale;
 		glm_scale(chunkModel, scale);
 
-		glUniformMatrix4fv(glGetUniformLocation(gs->chunkShader, "ourModel"), 1, GL_FALSE, (void*)chunkModel);
+		glUniformMatrix4fv(glGetUniformLocation(rs->chunkShader, "ourModel"), 1, GL_FALSE, (void*)chunkModel);
 
 		// TODO: Keep all chunks in one buffer and call glBufferSubData.
 		// TODO: Only buffer if chunk has changed.
-		gs->buffer = true;
-		if (gs->buffer)
+		if (true)
 		{
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, gs->chunkBBO);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, rs->chunkBBO);
 			glBufferData(GL_SHADER_STORAGE_BUFFER, numBlocks * sizeof(GLubyte), chunk->blocks, GL_DYNAMIC_DRAW);
-			glBindBuffer(GL_ARRAY_BUFFER, gs->chunkQBO);
+			glBindBuffer(GL_ARRAY_BUFFER, rs->chunkQBO);
 			glBufferData(GL_ARRAY_BUFFER, quads.size * sizeof(GLuint64), quads.values, GL_DYNAMIC_DRAW);
-			gs->buffer = false;
 		}
 		SDL_UnlockMutex(chunk->mutex);
 
@@ -521,5 +471,5 @@ void Render_Draw(GameState *gs)
 
 	SDL_UnlockMutex(gs->world->mutex);
 
-	SDL_GL_SwapWindow(gs->window);
+	SDL_GL_SwapWindow(rs->window);
 }

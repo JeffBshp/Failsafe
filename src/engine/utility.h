@@ -13,15 +13,6 @@ typedef struct
 	size_t size;
 } ListUInt64;
 
-typedef struct
-{
-	char message1[PROGRESS_MSG_LEN];
-	char message2[PROGRESS_MSG_LEN];
-	float percent1;
-	float percent2;
-	bool done;
-} Progress;
-
 typedef enum
 {
 	AXIS_X,
@@ -104,13 +95,9 @@ enum
 
 bool EnumHasFlag(int flags, int flag);
 void EnumSetFlag(int* flags, int flag, bool set);
+size_t ReadWholeFile(const char *path, char* buffer, int max);
 void ListUInt64Init(ListUInt64* list, size_t capacity);
 void ListUInt64Insert(ListUInt64* list, uint64_t value);
 void ListUInt64RemoveAt(ListUInt64* list, size_t index);
 uint64_t ListUInt64Pop(ListUInt64* list);
-void ProgressPrint(char* text, size_t n, Progress* prog);
 void GetIntCoords(vec3 fPos, ivec3 iPos);
-
-Treadmill3D* Treadmill3DNew(Treadmill3DLoader loader, TreadmillUnloader unloader, void* loaderObj, int radius);
-void* Treadmill3DGet(Treadmill3D* t, int x, int y, int z);
-void Treadmill3DMove(Treadmill3D* t, int dir);

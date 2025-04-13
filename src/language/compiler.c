@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
@@ -23,7 +24,7 @@ static inline bool AddInstruction(CompileContext* c, Instruction instr)
 	return true;
 }
 
-static int FindFunction(char* name, Function* functions, int n, Function** f)
+static int FindFunction(char *name, FunctionSignature *functions, int n, FunctionSignature **f)
 {
 	for (int i = 0; i < n; i++)
 	{
@@ -226,6 +227,7 @@ static bool CompileValueString(CompileContext* c, char* s)
 
 	// Finally, load the address of the first char
 	LoadFullWord(c, REG_RESULT, branchInstr + 1);
+	Instr3R(c, INSTR_ADD, REG_RESULT, REG_RESULT, REG_MODULE_PTR);
 
 	return c->status == COMPILE_SUCCESS;
 }
@@ -272,6 +274,23 @@ static bool Nand(CompileContext* c, uword operand)
 	LoadFullWord(c, REG_OPERAND_A, operand);
 	// NAND with previous expression result
 	return Instr3R(c, INSTR_NAND, REG_RESULT, REG_RESULT, REG_OPERAND_A);
+}
+
+static bool CompileOpDereference(CompileContext* c, Expression* operand, DataType* type)
+{
+	if (CompileExpression(c, operand, type))
+	{
+		if (*type == DAT_INT)
+		{
+			return Instr2R(c, INSTR_LW, REG_RESULT, REG_RESULT, 0);
+		}
+		else
+		{
+			c->status = COMPILE_INVALIDDEREF;
+		}
+	}
+
+	return false;
 }
 
 static bool CompileOpNegate(CompileContext* c, Expression* operand, DataType* type)
@@ -494,6 +513,7 @@ static bool CompileOperationExpression(CompileContext* c, EX_Operation op, DataT
 
 	switch (op.type)
 	{
+	case OP_DEREFERENCE: return CompileOpDereference(c, op.a, type);
 	case OP_NEGATE: return CompileOpNegate(c, op.a, type);
 	case OP_NOT: return CompileOpNot(c, op.a, type);
 	default: c->status = COMPILE_NOTIMPLEMENTED; return false; // TODO
@@ -501,16 +521,6 @@ static bool CompileOperationExpression(CompileContext* c, EX_Operation op, DataT
 }
 
 static bool CompileCall(CompileContext* c, ST_Call call, DataType* type);
-
-static bool CompileCallExpression(CompileContext* c, ST_Call call, DataType* type)
-{
-	if (CompileCall(c, call, type))
-	{
-		return Instr3R(c, INSTR_ADD, REG_RESULT, REG_RET_VAL, REG_ZERO);
-	}
-
-	return false;
-}
 
 // Adds instructions that evaluate an expression and place the result in REG_RESULT.
 // May overwrite R2 and R3.
@@ -521,7 +531,7 @@ static bool CompileExpression(CompileContext* c, Expression* e, DataType* type)
 	case EX_VALUE: return CompileValueExpression(c, e->content.asValue, type);
 	case EX_READ: return CompileReadExpression(c, e->content.asRead, type);
 	case EX_OPERATION: return CompileOperationExpression(c, e->content.asOperation, type);
-	case EX_CALL: return CompileCallExpression(c, e->content.asCall, type);
+	case EX_CALL: return CompileCall(c, e->content.asCall, type);
 	default: c->status = COMPILE_INVALIDEXPR; return false;
 	}
 }
@@ -544,13 +554,29 @@ static bool CompileAssign(CompileContext* c, ST_Assign a)
 	DataType type;
 	if (!CompileExpression(c, a.right, &type)) return false;
 
-	if (type != p.type)
+	if (a.derefLhs)
 	{
-		c->status = COMPILE_INVALIDTYPE;
-		return false;
+		if (p.type != DAT_INT)
+		{
+			c->status = COMPILE_INVALIDDEREF;
+			return false;
+		}
+
+		Instr2R(c, INSTR_LW, REG_OPERAND_A, REG_FRAME_PTR, i);
+		Instr2R(c, INSTR_SW, REG_RESULT, REG_OPERAND_A, 0);
+	}
+	else
+	{
+		if (type != p.type)
+		{
+			c->status = COMPILE_INVALIDTYPE;
+			return false;
+		}
+
+		Instr2R(c, INSTR_SW, REG_RESULT, REG_FRAME_PTR, i);
 	}
 
-	return Instr2R(c, INSTR_SW, REG_RESULT, REG_FRAME_PTR, i);
+	return c->status == COMPILE_SUCCESS;
 }
 
 static bool CompileStatement(CompileContext* c, Statement s);
@@ -643,8 +669,8 @@ static bool CompileCall(CompileContext* c, ST_Call call, DataType* type)
 		return false;
 	}
 
-	Function* f = NULL;
-	int fIndex = FindFunction(call.name, c->ast->functions, c->ast->numFunctions, &f);
+	FunctionSignature *fs = NULL;
+	int fIndex = FindFunction(call.name, c->functionSignatures, c->numFunctions, &fs);
 
 	if (fIndex < 0)
 	{
@@ -652,18 +678,19 @@ static bool CompileCall(CompileContext* c, ST_Call call, DataType* type)
 		return false;
 	}
 
-	if (f->numParams != call.numArguments)
+	if (fs->numParams != call.numArguments)
 	{
 		c->status = COMPILE_INVALIDARG;
 		return false;
 	}
 
 	// type pointer is null when the function is called as a statement, not null when called as an expression
-	if (type != NULL) *type = f->rtype;
+	if (type != NULL) *type = fs->returnType;
 
-	// Save RA and FP
+	// Save RA, FP, and MP
 	InstrStack(c, OPX_PUSH, REG_RET_ADDR);
 	InstrStack(c, OPX_PUSH, REG_FRAME_PTR);
+	if (fs->importIndex >= 0) InstrStack(c, OPX_PUSH, REG_MODULE_PTR);
 
 	// Push args to stack
 	for (int i = 0; i < call.numArguments; i++)
@@ -671,7 +698,7 @@ static bool CompileCall(CompileContext* c, ST_Call call, DataType* type)
 		DataType type;
 		if (CompileExpression(c, call.arguments + i, &type))
 		{
-			if (type == f->params[i].type)
+			if (type == fs->paramTypes[i])
 				InstrStack(c, OPX_PUSH, REG_RESULT);
 			else
 				c->status = COMPILE_INVALIDARG;
@@ -683,15 +710,26 @@ static bool CompileCall(CompileContext* c, ST_Call call, DataType* type)
 	// Make FP point to the previous top of the stack, before the args were pushed
 	Instr2R(c, INSTR_ADDI, REG_FRAME_PTR, REG_STACK_PTR, -(call.numArguments));
 
-	// Create a reference to the called function that will be revisited in a second pass, after each function has been assigned an address.
-	// The call instruction will advance SP past all of the args and locals, overwrite REG_RET_ADDR, and set PC to the function address.
-	// The ret instruction resets SP to the position of FP, which is where it was before pushing the args. Then it sets PC to REG_RET_ADDR.
-	FunctionReference* ref = c->functionReferences + c->numReferences;
-	ref->functionIndex = fIndex;
-	ref->instructionAddress = c->numInstructions;
-	c->numReferences++;
-	c->numInstructions += 3; // will come back later and add instructions to these skipped slots
-	// ^^^ Now numInstructions may be over max. In that case, status will be updated when adding instructions below.
+	if (fs->importIndex >= 0) // imported function
+	{
+		Instr2R(c, INSTR_LW, REG_MODULE_PTR, REG_MODULE_PTR, fs->importIndex); // switch to other module
+		LoadFullWord(c, REG_RESULT, fs->offset); // load function offset
+		Instr3R(c, INSTR_ADD, REG_RESULT, REG_RESULT, REG_MODULE_PTR); // calculate function address
+		Instr2R(c, INSTR_EXT, OPX_CALL, REG_RESULT, fs->numLocals); // call the function
+		InstrStack(c, OPX_POP, REG_MODULE_PTR); // restore mod ptr
+	}
+	else // local function
+	{
+		// Create a reference to the called function that will be revisited in a second pass, after each function has been assigned an address.
+		// The call instruction will advance SP past all of the args and locals, overwrite REG_RET_ADDR, and set PC to the function address.
+		// The ret instruction resets SP to the position of FP, which is where it was before pushing the args. Then it sets PC to REG_RET_ADDR.
+		FunctionReference* ref = c->functionReferences + c->numReferences;
+		ref->functionIndex = fIndex;
+		ref->instructionAddress = c->numInstructions;
+		c->numReferences++;
+		c->numInstructions += 4; // will come back later and add instructions to these skipped slots
+		// ^^^ Now numInstructions may be over max. In that case, status will be updated when adding instructions below.
+	}
 
 	// Restore the old FP and RA after the called function returns
 	InstrStack(c, OPX_POP, REG_FRAME_PTR);
@@ -707,11 +745,17 @@ static bool CompileReturn(CompileContext* c, ST_Return r)
 
 	if (CompileExpression(c, r, &type) && type == f->rtype)
 	{
-		Instr3R(c, INSTR_ADD, REG_RET_VAL, REG_RESULT, REG_ZERO);
-		Instr2R(c, INSTR_EXT, OPX_RET, 0, 0);
+		// return value is in REG_RESULT
+		Instr2R(c, INSTR_EXT, OPX_MORE, OPXX_RET, 0);
 	}
 
 	return c->status == COMPILE_SUCCESS;
+}
+
+static bool CompileRawInstruction(CompileContext* c, int raw)
+{
+	Instruction instr = { .bits = raw };
+	return AddInstruction(c, instr);
 }
 
 static bool CompileStatement(CompileContext* c, Statement s)
@@ -723,6 +767,7 @@ static bool CompileStatement(CompileContext* c, Statement s)
 	case ST_LOOP: return CompileLoop(c, s.content.asCondition);
 	case ST_CALL: return CompileCall(c, s.content.asCall, NULL);
 	case ST_RETURN: return CompileReturn(c, s.content.asReturn);
+	case ST_INSTR: return CompileRawInstruction(c, s.content.asInstr);
 	default: c->status = COMPILE_INVALIDSTMT; return false;
 	}
 }
@@ -735,7 +780,8 @@ static bool CompileFunction(CompileContext* c)
 {
 	// TODO: handle multiple functions or vars with the same name
 	Function* f = c->ast->functions + c->functionIndex;
-	f->address = c->numInstructions;
+	FunctionSignature *fs = c->functionSignatures + c->functionIndex;
+	fs->offset = c->numInstructions;
 	int numVars = f->numParams + f->numLocals;
 
 	// Vars will be accessed with an offset from FP, limited to 7 bits (-64 to 63)
@@ -749,11 +795,7 @@ static bool CompileFunction(CompileContext* c)
 	{
 		if (c->mainAddress < 0)
 		{
-			Instr3R(c, INSTR_EXT, OPX_HALT, REG_ZERO, REG_ZERO);
-			LoadFullWord(c, REG_RET_ADDR, f->address);
-
-			f->address++;
-			c->mainAddress = f->address;
+			c->mainAddress = fs->offset;
 
 			// Initialize SP and FP. Assume main's args have already been pushed, but no space yet allocated for locals
 			Instr2R(c, INSTR_ADDI, REG_FRAME_PTR, REG_STACK_PTR, -(f->numParams));
@@ -764,13 +806,6 @@ static bool CompileFunction(CompileContext* c)
 			c->status = COMPILE_MAINREDEFINED;
 			return false;
 		}
-	}
-	else if (f->isExternal)
-	{
-		// Insert a NOP instruction to occupy the function's memory address.
-		// This instruction won't be executed; the processor specially handles external calls.
-		Instr3R(c, INSTR_ADD, REG_ZERO, REG_ZERO, REG_ZERO);
-		return true;
 	}
 
 	// Compile the function body
@@ -786,17 +821,10 @@ static bool CompileFunction(CompileContext* c)
 		// Return null/zero by default
 		if (lastStatement.type != ST_RETURN)
 		{
-			if (f->isMain)
-			{
-				Instr3R(c, INSTR_EXT, OPX_HALT, 0, 0);
-			}
-			else
-			{
-				EX_Value retValue = { .type = f->rtype, .value.asString = NULL };
-				Expression retExpr = { .type = EX_VALUE, .content.asValue = retValue };
-				ST_Return ret = &retExpr;
-				CompileReturn(c, ret);
-			}
+			EX_Value retValue = { .type = f->rtype, .value.asString = NULL };
+			Expression retExpr = { .type = EX_VALUE, .content.asValue = retValue };
+			ST_Return ret = &retExpr;
+			CompileReturn(c, ret);
 		}
 	}
 
@@ -805,55 +833,67 @@ static bool CompileFunction(CompileContext* c)
 
 static void ResolveFunctionReference(CompileContext* c, FunctionReference ref)
 {
-	Function f = c->ast->functions[ref.functionIndex];
-
-	// Load the address into a temporary register
-	uword immed = (f.address & 0xFFC0) >> 6; // upper 10 bits, shifted right
+	FunctionSignature *fs = c->functionSignatures + ref.functionIndex;
 	Instruction instr = { .bits = 0 };
+
+	// load the function offset into a temporary register
 	instr.opCode = INSTR_LUI;
 	instr.regA = REG_RESULT;
-	instr.immed10 = immed;
+	instr.immed10 = (fs->offset & 0xFFC0) >> 6; // upper 10 bits, shifted right
 	c->instructions[ref.instructionAddress++] = instr;
 
-	immed = f.address & 0x003F; // lower 6 bits
 	instr.opCode = INSTR_ADDI;
 	instr.regA = REG_RESULT;
 	instr.regB = REG_RESULT;
-	instr.immed7 = immed;
+	instr.immed7 = fs->offset & 0x003F; // lower 6 bits
 	c->instructions[ref.instructionAddress++] = instr;
 
-	// Call the function
+	// calculate the absolute address
+	instr.opCode = INSTR_ADD;
+	instr.regA = REG_RESULT;
+	instr.regB = REG_RESULT;
+	instr.regC = REG_MODULE_PTR;
+	c->instructions[ref.instructionAddress++] = instr;
+
+	// call the function
 	instr.opCode = INSTR_EXT;
 	instr.regA = OPX_CALL;
 	instr.regB = REG_RESULT;
-	instr.immed7 = f.numLocals;
+	instr.immed7 = fs->numLocals;
 	c->instructions[ref.instructionAddress++] = instr;
 }
 
 #pragma endregion
 
-Program* Compiler_GenerateCode(SyntaxTree* ast)
+static Program *GenerateCode(CompileContext *c)
 {
-	Program* program = calloc(1, sizeof(Program));
-	CompileContext* c = calloc(1, sizeof(CompileContext));
-	c->ast = ast;
-	c->mainAddress = -1;
+	if (c->status != COMPILE_SUCCESS) return NULL;
 
-	for (c->functionIndex = 0; c->functionIndex < ast->numFunctions; c->functionIndex++)
+	for (c->functionIndex = 0; c->functionIndex < c->ast->numFunctions; c->functionIndex++)
 	{
 		if (!CompileFunction(c)) break;
 	}
 
-	if (c->mainAddress < 0) c->status = COMPILE_NOMAIN;
-
-	program->status = c->status;
-
 	if (c->status == COMPILE_SUCCESS)
 	{
+		Program *program = calloc(1, sizeof(Program));
+
 		for (int i = 0; i < c->numReferences; i++)
 		{
 			ResolveFunctionReference(c, c->functionReferences[i]);
 		}
+
+		// copy string pointers
+		program->numImports = c->ast->numImports;
+		program->imports = malloc(program->numImports * sizeof(char *));
+		for (int i = 0; i < program->numImports; i++)
+			program->imports[i] = DeepCopyStr(c->ast->imports[i]);
+
+		// copy only local function signatures to the compiled module, not imported
+		program->numFunctions = c->ast->numFunctions;
+		program->functions = calloc(program->numFunctions, sizeof(FunctionSignature));
+		for (int i = 0; i < program->numFunctions; i++)
+			program->functions[i] = c->functionSignatures[i];
 
 		program->mainAddress = c->mainAddress;
 		program->length = c->numInstructions;
@@ -861,17 +901,248 @@ Program* Compiler_GenerateCode(SyntaxTree* ast)
 		size_t sizeBytes = c->numInstructions * sizeof(uword);
 		program->bin = malloc(sizeBytes);
 		memcpy(program->bin, c->instructions, sizeBytes);
+
+		return program;
 	}
 
+	return NULL;
+}
+
+static void WriteCompiledModule(char *sourcePath, Program *module);
+static Program *ReadCompiledModule(char *sourcePath);
+
+// Recursively compiles a source file and its dependencies.
+// Produces a module that's ready to load and run.
+// Also wites the compiled module to disk in a custom file format.
+Program *Compiler_BuildFile(char *filePath)
+{
+	// TODO: rebuild only if source file changed
+	Program *module = NULL;//ReadCompiledModule(filePath);
+	if (module != NULL) return module;
+
+	CompileContext* c = calloc(1, sizeof(CompileContext));
+	c->mainAddress = -1;
+	c->ast = Parser_ParseFile(filePath);
+	c->numInstructions = c->ast->numImports; // skip this many instruction slots at the start
+	int n;
+
+	// add function signatures to the context so they can be looked up when compiling function calls
+	for (n = 0; n < c->ast->numFunctions; n++)
+	{
+		Function *f = c->ast->functions + n;
+		FunctionSignature *fs = c->functionSignatures + n;
+		strcpy(fs->name, f->name);
+		fs->importIndex = -1; // mark this as a local function
+		fs->offset = 0; // to be filled in during code gen
+		fs->returnType = (uint8_t)f->rtype;
+		fs->numLocals = f->numLocals;
+		fs->numParams = f->numParams;
+		for (int j = 0; j < f->numParams; j++)
+			fs->paramTypes[j] = (uint8_t)f->params[j].type;
+	}
+
+	char pathBuffer[MAXSTRLEN];
+
+	// also add signatures of imported functions
+	for (int i = 0; i < c->ast->numImports; i++)
+	{
+		sprintf(pathBuffer, "res/code/%s.txt", c->ast->imports[i]);
+		Program *importedModule = ReadCompiledModule(pathBuffer);
+		if (importedModule == NULL)
+			importedModule = Compiler_BuildFile(pathBuffer);
+
+		for (int j = 0; j < importedModule->numFunctions; j++)
+		{
+			if (n >= MAXFUNCTIONS)
+			{
+				c->status = COMPILE_TOOMANYFUNCTIONS;
+				goto generate;
+			}
+
+			c->functionSignatures[n] = importedModule->functions[j];
+			c->functionSignatures[n].importIndex = i;
+			n++;
+		}
+	}
+
+	generate:
+	c->numFunctions = n;
+	module = GenerateCode(c);
+
+	if (module == NULL) printf("Compile Error: %d\n", c->status);
+	else WriteCompiledModule(filePath, module);
+
+	Parser_Destroy(c->ast);
 	free(c);
-	return program;
+
+	return module;
 }
 
 void Compiler_Destroy(Program* p)
 {
 	if (p != NULL)
 	{
+		for (int i = 0; i < p->numImports; i++)
+			free(p->imports[i]);
+
+		free(p->imports);
+		free(p->functions);
 		free(p->bin);
 		free(p);
 	}
+}
+
+static int WritePackedString(char *s, FILE *file)
+{
+	int i = 0;
+	int n = 0;
+	uint16_t value;
+
+	do
+	{
+		value = s[n++];
+
+		if (value != 0)
+		{
+			value |= s[n++] << 8;
+		}
+
+		fwrite(&value, sizeof(uint16_t), 1, file);
+		i++;
+
+	} while ((value & 0xff00) != 0);
+
+	return i;
+}
+
+static int ReadPackedString(char *s, FILE *file)
+{
+	int i = 0;
+	int n = 0;
+	uint16_t value;
+
+	do
+	{
+		fread(&value, sizeof(uint16_t), 1, file);
+		i++;
+
+		s[n++] = (char)(value & 0x00ff);
+		s[n++] = (char)(value >> 8);
+
+	} while (s[n - 1] != '\0');
+
+	return i;
+}
+
+static inline void WriteWord(uint16_t value, FILE *file)
+{
+	fwrite(&value, sizeof(uint16_t), 1, file);
+}
+
+static inline uint16_t ReadWord(FILE *file)
+{
+	uint16_t value;
+	fread(&value, sizeof(uint16_t), 1, file);
+	return value;
+}
+
+static void WriteCompiledModule(char *sourcePath, Program *module)
+{
+	int n = strlen(sourcePath) + 1;
+	char *modulePath = malloc(n * sizeof(char));
+	strncpy(modulePath, sourcePath, n);
+	modulePath[n - 4] = 'm';
+	modulePath[n - 3] = 'o';
+	modulePath[n - 2] = 'd';
+	FILE *file = fopen(modulePath, "wb");
+
+	if (file != NULL)
+	{
+		uint16_t pos = 14;
+		WriteWord(pos, file);
+		WriteWord(module->numImports, file);
+		fseek(file, pos, SEEK_SET);
+
+		for (int i = 0; i < module->numImports; i++)
+		{
+			pos += 2 * WritePackedString(module->imports[i], file);
+		}
+
+		fseek(file, 4, SEEK_SET);
+		WriteWord(pos, file);
+		WriteWord(module->numFunctions, file);
+		fseek(file, pos, SEEK_SET);
+
+		for (int i = 0; i < module->numFunctions; i++)
+		{
+			FunctionSignature *fs = module->functions + i;
+			WriteWord(fs->offset, file);
+			WriteWord(fs->returnType, file);
+			pos += 2 * WritePackedString(fs->name, file);
+			WriteWord(fs->numLocals, file);
+			WriteWord(fs->numParams, file);
+			pos += 8;
+			fwrite(fs->paramTypes, sizeof(uint16_t), fs->numParams, file);
+			pos += 2 * fs->numParams;
+		}
+
+		fseek(file, 8, SEEK_SET);
+		WriteWord(pos, file);
+		WriteWord(module->length, file);
+		WriteWord(module->mainAddress, file);
+		fseek(file, pos, SEEK_SET);
+
+		fwrite(module->bin, sizeof(uint16_t), module->length, file);
+		fclose(file);
+	}
+}
+
+static Program *ReadCompiledModule(char *sourcePath)
+{
+	int n = strlen(sourcePath) + 1;
+	char *modulePath = malloc(n * sizeof(char));
+	strncpy(modulePath, sourcePath, n);
+	modulePath[n - 4] = 'm';
+	modulePath[n - 3] = 'o';
+	modulePath[n - 2] = 'd';
+	FILE *file = fopen(modulePath, "rb");
+	Program *module = NULL;
+
+	if (file != NULL)
+	{
+		module = calloc(1, sizeof(Program));
+		ReadWord(file);
+		module->numImports = ReadWord(file);
+		ReadWord(file);
+		module->numFunctions = ReadWord(file);
+		ReadWord(file);
+		module->length = ReadWord(file);
+		module->mainAddress = ReadWord(file);
+
+		module->imports = malloc(module->numImports * sizeof(char *));
+		module->functions = calloc(module->numFunctions, sizeof(FunctionSignature));
+		module->bin = malloc(module->length * sizeof(uint16_t));
+
+		for (int i = 0; i < module->numImports; i++)
+		{
+			module->imports[i] = malloc(MAXNAMELEN * sizeof(char));
+			ReadPackedString(module->imports[i], file);
+		}
+
+		for (int i = 0; i < module->numFunctions; i++)
+		{
+			FunctionSignature *fs = module->functions + i;
+			fs->offset = ReadWord(file);
+			fs->returnType = ReadWord(file);
+			ReadPackedString(fs->name, file);
+			fs->numLocals = ReadWord(file);
+			fs->numParams = ReadWord(file);
+			fread(fs->paramTypes, sizeof(uint16_t), fs->numParams, file);
+		}
+
+		fread(module->bin, sizeof(uint16_t), module->length, file);
+		fclose(file);
+	}
+
+	return module;
 }

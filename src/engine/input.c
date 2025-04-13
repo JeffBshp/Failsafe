@@ -39,36 +39,21 @@ static void RunProgram(GameState *gs)
 {
 	Processor *processor = gs->codeDemoProcessor;
 
-	if (processor->halt)
+	if (processor->poweredOn)
 	{
-		printf("Compile Program...\n");
-
-		// Save the source code
-		Editor_SaveToFile(gs->codeTextBox, gs->programFilePath);
-		// Parse and compile the virtual program
-		SyntaxTree *ast = Parser_ParseFile(gs->programFilePath);
-		Program *program = Compiler_GenerateCode(ast);
-
-		if (program->status == COMPILE_SUCCESS)
-		{
-			printf("Run Program...\n");
-			memcpy(processor->memory.data, program->bin, program->length * sizeof(uword)); // Load program into virtual memory
-			Memory_WriteFile(processor->memory, "res/code/example.mem"); // Save the raw binary to a file
-			Processor_Reset(processor, program->mainAddress, 1024); // Set the addresses of the program and the stack
-			processor->halt = false;
-		}
-		else
-		{
-			printf("Compile Error: %d\n", program->status);
-		}
-
-		Compiler_Destroy(program);
-		Parser_Destroy(ast);
+		printf("Shutting down processor...\n");
+		processor->poweredOn = false;
 	}
 	else
 	{
-		printf("Halt!\n");
-		processor->halt = true;
+		// Save a temporary copy of the code. It will be compiled during boot instead of the original.
+		Editor_SaveToFile(gs->codeTextBox, gs->programFilePath);
+
+		printf("Booting virtual machine...\n");
+		if (Processor_Boot(processor))
+		{
+			Memory_WriteFile(processor->memory, "res/code/out.mem");
+		}
 	}
 }
 

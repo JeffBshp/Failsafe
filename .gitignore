@@ -1,6 +1,7 @@
 *.bak
 *.bin
 *.mem
-*.temp
+*.mod
+*.tmp
 *.chunk
 obj/*

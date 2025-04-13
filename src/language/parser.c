@@ -32,7 +32,7 @@ static DataType TokenToDataType(Token tok)
 	return DAT_INVALID;
 }
 
-static char* DeepCopyStr(char* str)
+char* DeepCopyStr(char* str)
 {
 	int n = strlen(str) + 1;
 	char* dest = malloc(n * sizeof(char));
@@ -297,6 +297,13 @@ static Expression* ReadExpressionAtom(Lexer* lex)
 			e = ReadExpression(lex);
 			SkipSymbol(lex, SYM_RPAREN);
 			break;
+		case SYM_AT:
+			e = MakeExpression(EX_OPERATION);
+			e->content.asOperation.type = OP_DEREFERENCE;
+			e->content.asOperation.isBinary = false;
+			e->content.asOperation.a = ReadExpressionAtom(lex);
+			e->content.asOperation.b = NULL;
+			break;
 		case SYM_MINUS:
 			e = MakeExpression(EX_OPERATION);
 			e->content.asOperation.type = OP_NEGATE;
@@ -445,6 +452,17 @@ static void ReadConditionStatement(Lexer* lex, Statement* s, StatementType type)
 	cStatement->statements = ReadBlock(lex, &(cStatement->numStatements));
 }
 
+static void ReadRawInstruction(Lexer* lex, Statement* s)
+{
+	Lexer_NextToken(lex);
+	SkipSymbol(lex, SYM_LPAREN);
+	SkipToken(lex, (Token) { .type = TOK_LIT_INT });
+	s->type = ST_INSTR;
+	s->content.asInstr = lex->token.value.asInt;
+	SkipSymbol(lex, SYM_RPAREN);
+	SkipSymbol(lex, SYM_SEMICOLON);
+}
+
 static bool TryReadKeywordStatement(Lexer* lex, Statement* s)
 {
 	switch (lex->token.value.asKeyword)
@@ -461,6 +479,27 @@ static bool TryReadKeywordStatement(Lexer* lex, Statement* s)
 		s->content.asReturn = ReadExpression(lex);
 		SkipSymbol(lex, SYM_SEMICOLON);
 		return true;
+	case KW_INSTR:
+		ReadRawInstruction(lex, s);
+		return true;
+	}
+
+	return false;
+}
+
+static bool TryReadSymbolStatement(Lexer* lex, Statement* s)
+{
+	// only possible statement that begins with a symbol is an assignment where the lhs is dereferenced
+	if (TrySkipSymbol(lex, SYM_AT))
+	{
+		char* identifier = ReadIdentifier(lex);
+		SkipSymbol(lex, SYM_1EQUAL);
+		s->type = ST_ASSIGN;
+		s->content.asAssign.left = identifier;
+		s->content.asAssign.right = ReadExpression(lex);
+		s->content.asAssign.derefLhs = true;
+		SkipSymbol(lex, SYM_SEMICOLON);
+		return true;
 	}
 
 	return false;
@@ -468,15 +507,14 @@ static bool TryReadKeywordStatement(Lexer* lex, Statement* s)
 
 static bool TryReadIdentifierStatement(Lexer* lex, Statement* s)
 {
-	Lexer_NextToken(lex);
-	char* identifier = DeepCopyStr(lex->token.value.asString);
-	Token next = PeekToken(lex);
+	char* identifier = ReadIdentifier(lex);
 
 	if (TrySkipSymbol(lex, SYM_1EQUAL))
 	{
 		s->type = ST_ASSIGN;
 		s->content.asAssign.left = identifier;
 		s->content.asAssign.right = ReadExpression(lex);
+		s->content.asAssign.derefLhs = false;
 		SkipSymbol(lex, SYM_SEMICOLON);
 		return true;
 	}
@@ -500,9 +538,8 @@ static bool TryReadStatement(Lexer* lex, Statement* s)
 	if (tok.type == TOK_KEYWORD)
 		return TryReadKeywordStatement(lex, s);
 
-	// TODO: Are there any statements that begin with a symbol?
 	if (tok.type == TOK_SYMBOL)
-		return false;
+		return TryReadSymbolStatement(lex, s);
 
 	if (tok.type == TOK_IDENTIFIER)
 		return TryReadIdentifierStatement(lex, s);
@@ -516,8 +553,6 @@ static bool TryReadStatement(Lexer* lex, Statement* s)
 
 static void ParseFunction(Lexer* lex, Function* f)
 {
-	f->address = -1;
-	f->id = -1;
 	f->rtype = ReadType(lex);
 
 	const Token mainKeyword = { .type = TOK_KEYWORD, .value = { .asKeyword = KW_MAIN } };
@@ -536,22 +571,6 @@ static void ParseFunction(Lexer* lex, Function* f)
 	f->params = ReadParameterList(lex, &(f->numParams));
 	f->locals = ReadParameterList(lex, &(f->numLocals));
 	f->statements = ReadBlock(lex, &(f->numStatements));
-	f->isExternal = false;
-}
-
-static void AddExternalFunction(Function* f, char* name, Parameter* params, int numParams, ExternalFunctionID id)
-{
-	f->rtype = DAT_VOID;
-	f->name = name;
-	f->numParams = numParams;
-	f->params = params;
-	f->numLocals = 0;
-	f->locals = NULL;
-	f->numStatements = 0;
-	f->statements = NULL;
-	f->isMain = false;
-	f->isExternal = true;
-	f->id = id;
 }
 
 #pragma endregion
@@ -559,43 +578,32 @@ static void AddExternalFunction(Function* f, char* name, Parameter* params, int 
 // TODO: lots of error handling
 SyntaxTree* Parser_ParseFile(char* filePath)
 {
-	enum { MAX_FUNCTIONS = 100 };
+	enum { MAX_FUNCTIONS = 100, MAX_IMPORTS = 20 };
 
 	SyntaxTree* ast = calloc(1, sizeof(SyntaxTree));
 	Function functionBuffer[MAX_FUNCTIONS];
 	Function* functionPtr = functionBuffer;
+	char *importBuffer[MAX_IMPORTS];
 	Lexer* lex = Lexer_OpenFile(filePath);
 
-	ast->numFunctions = 4; // number of external functions
+	const Token importKeyword = { .type = TOK_KEYWORD, .value = { .asKeyword = KW_IMPORT } };
 
-	// "print" function
-	Parameter* p = calloc(2, sizeof(Parameter));
-	p[0] = (Parameter){ .name = "str", .type = DAT_STRING };
-	p[1] = (Parameter){ .name = "val", .type = DAT_INT };
-	AddExternalFunction(functionPtr++, "print", p, 2, EXTF_PRINT);
+	while (ast->numImports < MAX_IMPORTS && TrySkipToken(lex, importKeyword))
+	{
+		importBuffer[ast->numImports++] = ReadIdentifier(lex);
+		SkipSymbol(lex, SYM_SEMICOLON);
+	}
 
-	// "sleep" function
-	p = calloc(1, sizeof(Parameter));
-	p[0] = (Parameter){ .name = "ticks", .type = DAT_INT };
-	AddExternalFunction(functionPtr++, "sleep", p, 1, EXTF_SLEEP);
+	ast->imports = malloc(ast->numImports * sizeof(char *));
+	memcpy(ast->imports, importBuffer, ast->numImports * sizeof(char *));
 
-	// "move" function
-	p = calloc(1, sizeof(Parameter));
-	p[0] = (Parameter){ .name = "direction", .type = DAT_INT };
-	AddExternalFunction(functionPtr++, "move", p, 1, EXTF_MOVE);
-
-	// "break" function
-	p = calloc(1, sizeof(Parameter));
-	p[0] = (Parameter){ .name = "direction", .type = DAT_INT }; // TODO: not used yet
-	AddExternalFunction(functionPtr++, "break", p, 1, EXTF_BREAK);
-
-	while (ast->numFunctions <= MAX_FUNCTIONS && HasToken(lex))
+	while (ast->numFunctions < MAX_FUNCTIONS && HasToken(lex))
 	{
 		ParseFunction(lex, functionPtr++);
 		ast->numFunctions++;
 	}
 
-	ast->functions = calloc(ast->numFunctions, sizeof(Function));
+	ast->functions = malloc(ast->numFunctions * sizeof(Function));
 	memcpy(ast->functions, functionBuffer, ast->numFunctions * sizeof(Function));
 	Lexer_Destroy(lex);
 
@@ -664,18 +672,14 @@ static void FreeStatement(Statement* s)
 
 static void FreeFunction(Function* f)
 {
-	// The external functions are initialized with string literals, which cannot be freed.
-	if (!f->isExternal)
-	{
-		for (int i = 0; i < f->numParams; i++)
-			free(f->params[i].name);
+	// Name of "main" is lexed as a keyword and then points to a literal
+	if (!f->isMain) free(f->name);
 
-		for (int i = 0; i < f->numLocals; i++)
-			free(f->locals[i].name);
+	for (int i = 0; i < f->numParams; i++)
+		free(f->params[i].name);
 
-		// Name of "main" is lexed as a keyword and then points to a literal
-		if (!f->isMain) free(f->name);
-	}
+	for (int i = 0; i < f->numLocals; i++)
+		free(f->locals[i].name);
 
 	for (int i = 0; i < f->numStatements; i++)
 		FreeStatement(f->statements + i);
@@ -689,9 +693,13 @@ void Parser_Destroy(SyntaxTree* ast)
 {
 	if (ast != NULL)
 	{
+		for (int i = 0; i < ast->numImports; i++)
+			free(ast->imports[i]);
+
 		for (int i = 0; i < ast->numFunctions; i++)
 			FreeFunction(ast->functions + i);
 
+		free(ast->imports);
 		free(ast->functions);
 		free(ast);
 	}

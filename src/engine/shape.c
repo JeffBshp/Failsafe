@@ -480,7 +480,7 @@ void Shape_MakeSphere(Shape* shape, int numModels)
 		89, 90, 97,		90, 91, 97,		91, 92, 97,		92, 93, 97,		93, 94, 97,		94, 95, 97,		95, 96, 97,		96, 89, 97
 	};
 
-	MakeShape(shape, vertices, sizeof(vertices), indices, sizeof(indices), numModels, 130.0f, 50.0f, 0.5f);
+	MakeShape(shape, vertices, sizeof(vertices), indices, sizeof(indices), numModels, 130.0f, 50.0f, 0.4f);
 
 	for (int i = 0; i < numModels; i++)
 	{

@@ -17,6 +17,8 @@ typedef enum
 
 typedef enum
 {
+	KW_IMPORT,
+	KW_INSTR,
 	KW_IF,
 	KW_ELSE,
 	KW_WHILE,
@@ -54,18 +56,19 @@ typedef enum
 	SYM_STAR = '*',
 	SYM_SLASH = '/',
 	SYM_PERCENT = '%',
+	SYM_AT = '@',
 	SYM_1AND = '&',
-	SYM_2AND = '&&',
+	SYM_2AND = '&' | ('&' << 8),
 	SYM_1OR = '|',
-	SYM_2OR = '||',
+	SYM_2OR = '|' | ('|' << 8),
 	SYM_EXCL = '!',
 	SYM_1EQUAL = '=',
-	SYM_2EQUAL = '==',
-	SYM_NOTEQ = '!=',
+	SYM_2EQUAL = '=' | ('=' << 8),
+	SYM_NOTEQ = '!' | ('=' << 8),
 	SYM_LESS = '<',
-	SYM_LESSEQ = '<=',
+	SYM_LESSEQ = '<' | ('=' << 8),
 	SYM_GREATER = '>',
-	SYM_GREATEREQ = '>=',
+	SYM_GREATEREQ = '>' | ('=' << 8),
 } TokenSymbol;
 
 typedef enum
@@ -110,8 +113,8 @@ typedef struct
 typedef struct
 {
 	FILE* file;			// the file to read
-	char* buffer;		// characters read so far
-	char* subbuffer;	// buffer for the current token
+	char buffer[CONST_BUFFERSIZE];		// characters read so far
+	char subbuffer[CONST_SUBBUFSIZE];	// buffer for the current token
 	int i;				// index of the current char (< n)
 	int n;				// number of chars in the buffer
 	int c;				// character at buffer[i]

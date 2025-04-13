@@ -2,20 +2,13 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include "cglm/cglm.h"
+#include "../language/kernel.h"
 #include "../language/float16.h"
 #include "processor.h"
 #include "device.h"
 #include "memory.h"
 
-// Based on the RiSC-16 Instruction Set Architecture.
-
-// TODO:
-// Constrain stack size and program size.
-// Send args to main function (place them on the stack at program startup).
-// Send output to the game world via a proper I/O protocol (for now there are just hardcoded functions).
-// Add various I/O devices, including disk storage.
-// Handle libraries and multiple processes, possibly with an operating system.
-// Write an assembler and disassembler.
+// Originally based on the RiSC-16 Instruction Set Architecture.
 
 Processor* Processor_New(Device device, Memory memory)
 {
@@ -24,16 +17,26 @@ Processor* Processor_New(Device device, Memory memory)
 	p->halt = true;
 	p->device = device;
 	p->memory = memory;
+	p->device.memory = memory;
+	p->device.irq = &p->irq;
+	p->poweredOn = false;
 	return p;
 }
 
-void Processor_Reset(Processor* p, uword startAddress, uword stackPointer)
+bool Processor_Boot(Processor *p)
 {
+	memset(p->registers, 0, 16);
+	memset(p->memory.data, 0, p->memory.n * sizeof(uint16_t));
+	uint16_t startAddress = Kernel_Load(p->memory.data);
+	if (startAddress == 0xffff) return false;
+
+	p->instructionPointer = startAddress;
+	p->irq = 0;
 	p->ticks = 0;
-	p->halt = true;
-	p->programCounter = startAddress;
-	p->startAddress = 0;
-	p->registers[REG_STACK_PTR] = stackPointer;
+	p->interruptEnable  = false;
+	p->halt = false;
+	p->poweredOn = true;
+	return true;
 }
 
 #pragma region Helpers
@@ -43,10 +46,13 @@ static inline void SetReg(uword* r, uword i, uword value)
 	if (i > 0) r[i] = value;
 }
 
-static inline void Shift(uword* r, uword i, word n)
+static inline void Shift(uword* r, word n)
 {
-	uword result = n < 0 ? r[i] << n : r[i] >> n;
-	SetReg(r, i, result);
+	uword result = n < 0
+		? r[REG_OPERAND_A] << n
+		: r[REG_OPERAND_A] >> n;
+
+	SetReg(r, REG_RESULT, result);
 }
 
 static inline void Comp(uword* r, Instruction instr)
@@ -136,157 +142,138 @@ static inline void BinaryOp(uword* r, Instruction instr)
 	r[REG_RESULT] = result;
 }
 
-static inline void Print(uword* r, uword* mem, Instruction instr)
-{
-	uword fp = r[REG_FRAME_PTR]; // args are on the stack, starting at the frame pointer
-	uword strptr = mem[fp]; // first arg is a pointer to the char array in virtual memory
-	char* arg1 = (void*)(mem + strptr); // this is the pointer in real-life memory
-	word arg2 = mem[fp + 1]; // second arg is an integer
-	printf(">>> %s %d\n", arg1, arg2);
-}
-
-static inline void MoveObject(Processor* proc, Instruction instr)
-{
-	uword fp = proc->registers[REG_FRAME_PTR];
-	word arg = proc->memory.data[fp];
-	float* vel = (void*)(proc->device.model->vel);
-	const float dv = 0.5f;
-	glm_vec3_zero(vel);
-
-	switch (arg)
-	{
-	case 0: vel[0] += dv; break;
-	case 1: vel[0] -= dv; break;
-	case 2: vel[1] += dv; break;
-	case 3: vel[1] -= dv; break;
-	case 4: vel[2] += dv; break;
-	case 5: vel[2] -= dv; break;
-	}
-}
-
 #pragma endregion
+
+static void ExecuteNextInstruction(Processor *p)
+{
+	uword* r = p->registers;
+	uword* mem = p->memory.data;
+	Instruction instr;
+	instr.bits = mem[p->instructionPointer];
+	uword next = p->instructionPointer + 1;
+	uword result = 0;
+
+	switch (instr.opCode)
+	{
+	case INSTR_ADD:
+		SetReg(r, instr.regA, r[instr.regB] + r[instr.regC]);
+		break;
+	case INSTR_ADDI:
+		SetReg(r, instr.regA, r[instr.regB] + instr.immed7);
+		break;
+	case INSTR_NAND:
+		SetReg(r, instr.regA, ~(r[instr.regB] & r[instr.regC]));
+		break;
+	case INSTR_LUI:
+		SetReg(r, instr.regA, instr.immed10 << 6);
+		break;
+	case INSTR_SW:
+		mem[r[instr.regB] + instr.immed7] = r[instr.regA];
+		break;
+	case INSTR_LW:
+		SetReg(r, instr.regA, mem[r[instr.regB] + instr.immed7]);
+		break;
+	case INSTR_BEZ:
+		if (r[instr.regA] == 0) next += instr.immed10;
+		break;
+	case INSTR_EXT: // extended op code
+		switch (instr.regA)
+		{
+		case OPX_PUSH:
+			mem[(r[REG_STACK_PTR])++] = r[instr.regB];
+			break;
+		case OPX_POP:
+			SetReg(r, instr.regB, mem[--(r[REG_STACK_PTR])]);
+			break;
+		case OPX_CALL:
+			r[REG_STACK_PTR] += instr.immed7; // allocate uninitialized locals on stack
+			r[REG_RET_ADDR] = next; // set RA
+			next = r[instr.regB]; // jump to function
+			break;
+		case OPX_COMP:
+			Comp(r, instr);
+			break;
+		case OPX_BINOP:
+			BinaryOp(r, instr);
+			break;
+		case OPX_MORE:
+			switch (instr.regB)
+			{
+				case OPXX_SHIFT:
+					Shift(r, instr.immed7);
+					break;
+				case OPXX_RET:
+					r[REG_STACK_PTR] = r[REG_FRAME_PTR]; // drop args/locals from stack
+					next = r[REG_RET_ADDR]; // jump to RA
+					break;
+				case OPXX_IRET:
+					next = r[REG_RET_ADDR];
+					r[REG_STACK_PTR] -= 8;
+					memcpy(r, mem + r[REG_STACK_PTR], 16);
+					p->interruptEnable = true;
+					break;
+				case OPXX_IEN:
+					p->interruptEnable = instr.immed7 != 0;
+					break;
+				case OPXX_INT:
+					p->irq |= 1 << (instr.immed7 & 0x0f);
+					break;
+				case OPXX_HALT:
+					p->halt = true;
+					break;
+				default: break;
+			}
+			break;
+		default: break;
+		}
+		break;
+	default: break;
+	}
+
+	p->instructionPointer = next;
+}
 
 // Runs the processor for a certain number of ticks (milliseconds).
 // It runs at one cycle per tick, which is 1 kHz.
 // All instructions take exactly one cycle.
 void Processor_Run(Processor* p, int ticks)
 {
-	const bool log = false;
+	if (!p->poweredOn) return;
+
+	if (p->interruptEnable && p->irq != 0)
+	{
+		int irq, bit, isr;
+		for (irq = 0; irq < 16; irq++)
+		{
+			bit = 1 << irq;
+			if ((p->irq & bit) != 0)
+			{
+				isr = p->memory.data[irq];
+				p->irq &= ~bit;
+
+				if (isr != 0)
+				{
+					memcpy(p->memory.data + p->registers[REG_STACK_PTR], p->registers, 16);
+					p->registers[REG_STACK_PTR] += 8;
+					p->registers[REG_RET_ADDR] = p->instructionPointer;
+					p->interruptEnable = false;
+					p->instructionPointer = isr;
+					p->ticks = ticks;
+					p->halt = false;
+					break;
+				}
+			}
+		}
+	}
 
 	// Calibrate ticks on the first frame. It will begin executing next frame.
 	if (p->ticks == 0) p->ticks = ticks;
 
-	while (p->ticks < ticks && !p->halt && p->programCounter < p->memory.n)
+	while (p->ticks < ticks && !p->halt && p->instructionPointer < p->memory.n)
 	{
-		uword* r = p->registers;
-		uword* mem = p->memory.data;
-		Instruction instr;
-		instr.bits = mem[p->programCounter];
-		p->instruction = instr.bits;
-		uword next = p->programCounter + 1;
-		uword result = 0;
-
-		switch (instr.opCode)
-		{
-		case INSTR_ADD:
-			SetReg(r, instr.regA, r[instr.regB] + r[instr.regC]);
-			if (log) printf("ADD %d\n", r[instr.regA]);
-			break;
-		case INSTR_ADDI:
-			SetReg(r, instr.regA, r[instr.regB] + instr.immed7);
-			if (log) printf("ADDI %d\n", r[instr.regA]);
-			break;
-		case INSTR_NAND:
-			SetReg(r, instr.regA, ~(r[instr.regB] & r[instr.regC]));
-			if (log) printf("NAND %d\n", r[instr.regA]);
-			break;
-		case INSTR_LUI:
-			SetReg(r, instr.regA, instr.immed10 << 6);
-			if (log) printf("LUI %d\n", r[instr.regA]);
-			break;
-		case INSTR_SW:
-			mem[r[instr.regB] + instr.immed7] = r[instr.regA];
-			if (log) printf("SW %d at %d\n", r[instr.regA], r[instr.regB] + instr.immed7);
-			break;
-		case INSTR_LW:
-			SetReg(r, instr.regA, mem[r[instr.regB] + instr.immed7]);
-			if (log) printf("LW %d from %d\n", r[instr.regA], r[instr.regB] + instr.immed7);
-			break;
-		case INSTR_BEZ:
-			if (log) printf("BEZ (%d) --> %d\n", r[instr.regA], instr.immed10);
-			if (r[instr.regA] == 0)
-				next += instr.immed10;
-			break;
-		case INSTR_EXT: // extended op code
-			switch (instr.regA)
-			{
-			case OPX_PUSH:
-				if (log) printf("PUSH %d (%d)\n", r[instr.regB], r[REG_STACK_PTR]);
-				mem[(r[REG_STACK_PTR])++] = r[instr.regB];
-				break;
-			case OPX_POP:
-				SetReg(r, instr.regB, mem[--(r[REG_STACK_PTR])]);
-				if (log) printf("POP %d (%d)\n", r[instr.regB], r[REG_STACK_PTR]);
-				break;
-			case OPX_CALL:
-				switch (r[instr.regB])
-				{
-				case EXTCALL_PRINT:
-					if (log) printf("CALL print (%d)\n", instr.immed7);
-					Print(r, mem, instr);
-					r[REG_STACK_PTR] = r[REG_FRAME_PTR];
-					break;
-				case EXTCALL_SLEEP:
-					if (log) printf("CALL sleep(%d)\n", mem[r[REG_FRAME_PTR]]);
-					// ticks also gets incremented below; that is not counted toward the sleep time
-					p->ticks += mem[r[REG_FRAME_PTR]];
-					r[REG_STACK_PTR] = r[REG_FRAME_PTR];
-					break;
-				case EXTCALL_MOVE:
-					if (log) printf("CALL move(%d)\n", mem[r[REG_FRAME_PTR]]);
-					MoveObject(p, instr);
-					r[REG_STACK_PTR] = r[REG_FRAME_PTR];
-					break;
-				case EXTCALL_BREAK:
-					if (log) printf("CALL break(%d)\n", mem[r[REG_FRAME_PTR]]);\
-					Device_BreakBlock(&p->device);
-					r[REG_STACK_PTR] = r[REG_FRAME_PTR];
-					break;
-				default:
-					if (log) printf("CALL %d (%d)\n", r[instr.regB], instr.immed7);
-					r[REG_STACK_PTR] += instr.immed7;
-					r[REG_RET_ADDR] = next;
-					next = p->startAddress + r[instr.regB];
-					break;
-				}
-				break;
-			case OPX_RET:
-				if (log) printf("RET %d\n", r[REG_RET_ADDR]);
-				r[REG_STACK_PTR] = r[REG_FRAME_PTR];
-				next = r[REG_RET_ADDR];
-				break;
-			case OPX_SHIFT:
-				Shift(r, instr.regB, instr.immed7);
-				if (log) printf("SHIFT %d (%d)\n", r[instr.regB], instr.immed7);
-				break;
-			case OPX_COMP:
-				if (log) printf("COMP (%d) %d (%d)\n", r[instr.regB], instr.comp, r[instr.regC]);
-				Comp(r, instr);
-				break;
-			case OPX_BINOP:
-				BinaryOp(r, instr);
-				break;
-			case OPX_HALT:
-				if (log) printf("HALT\n");
-				p->halt = true;
-				break;
-			default: break;
-			}
-			break;
-		default: break;
-		}
-
-		p->programCounter = next;
+		ExecuteNextInstruction(p);
 		p->ticks++;
 	}
+
+	Device_Update(&p->device, ticks);
 }

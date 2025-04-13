@@ -15,6 +15,7 @@ typedef enum
 typedef enum
 {
 	OP_ACCESS,
+	OP_DEREFERENCE,
 	OP_NEGATE,
 	OP_NOT,
 	OP_MULTIPLY,
@@ -50,6 +51,7 @@ typedef enum
 	ST_LOOP,
 	ST_CALL,
 	ST_RETURN,
+	ST_INSTR,
 } StatementType;
 
 struct Function;
@@ -81,14 +83,6 @@ typedef struct
 	DataType type;
 } Parameter;
 
-typedef enum
-{
-	EXTF_PRINT,
-	EXTF_SLEEP,
-	EXTF_MOVE,
-	EXTF_BREAK,
-} ExternalFunctionID;
-
 struct Function
 {
 	char* name;
@@ -98,11 +92,8 @@ struct Function
 	int numParams;
 	int numLocals;
 	int numStatements;
-	int address;
-	ExternalFunctionID id; // for external functions only
 	DataType rtype;
 	bool isMain;
-	bool isExternal;
 };
 
 typedef struct
@@ -141,6 +132,7 @@ typedef struct
 {
 	char* left;
 	Expression* right;
+	bool derefLhs;
 } ST_Assign;
 
 union ExpressionUnion
@@ -163,6 +155,7 @@ union StatementUnion
 	ST_Condition asCondition;
 	ST_Call asCall;
 	ST_Return asReturn;
+	int asInstr;
 };
 
 struct Statement
@@ -172,12 +165,14 @@ struct Statement
 };
 
 // Root node representing a source code file.
-// Just contains functions.
 typedef struct
 {
-	Function* functions;
+	Function *functions;
+	char **imports;
 	int numFunctions;
+	int numImports;
 } SyntaxTree;
 
+char* DeepCopyStr(char* str);
 SyntaxTree* Parser_ParseFile(char* filePath);
 void Parser_Destroy(SyntaxTree* ast);

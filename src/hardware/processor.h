@@ -1,12 +1,14 @@
 #pragma once
 
 #include <stdint.h>
+
 #include "device.h"
 #include "memory.h"
 
+// TODO: clean up the instruction set architecture
 typedef enum
 {
-	// instruction opcodes
+	// primary opcodes
 	INSTR_ADD,
 	INSTR_ADDI,
 	INSTR_NAND,
@@ -16,15 +18,25 @@ typedef enum
 	INSTR_BEZ,
 	INSTR_EXT,
 
-	// extended opcodes
+	// extended opcodes given by instr.regA when INSTR_EXT is used
 	OPX_PUSH = 0,
 	OPX_POP,
 	OPX_CALL,
-	OPX_RET,
-	OPX_SHIFT,
+	OPX_RESERVED1, // not used
+	OPX_RESERVED2,
 	OPX_COMP, // compare instr.regB and instr.regC, save boolean to REG_RESULT
 	OPX_BINOP, // additional binary operations on B and C
-	OPX_HALT,
+	OPX_MORE, // even more opcodes that only take immed7 as an operand
+
+	// doubly extended opcodes given by instr.regB when OPX_MORE is used
+	OPXX_SHIFT = 0,
+	OPXX_RESERVED1,
+	OPXX_RESERVED2,
+	OPXX_RET,
+	OPXX_IRET, // return from interrupt
+	OPXX_IEN, // set interrupt enable flag
+	OPXX_INT, // software interrupt
+	OPXX_HALT,
 
 	// comparison codes given by instr.comp (except float comparisons)
 	COMP_EQ = 0,
@@ -55,25 +67,19 @@ typedef enum
 	FPMATH_SUB,
 	FPMATH_MUL,
 	FPMATH_DIV,
-
-	// external function calls
-	EXTCALL_PRINT = 0,
-	EXTCALL_SLEEP,
-	EXTCALL_MOVE,
-	EXTCALL_BREAK,
 } OpCode;
 
 enum
 {
 	// register numbers
-	REG_ZERO = 0,
-	REG_RESULT = 1,
-	REG_OPERAND_A = 2,
-	REG_OPERAND_B = 3,
-	REG_RET_VAL = 4,
-	REG_RET_ADDR = 5,
-	REG_FRAME_PTR = 6,
-	REG_STACK_PTR = 7,
+	REG_ZERO = 0,			// RZ: always zero
+	REG_RESULT = 1,			// RR: general purpose result register; also holds a function's return value
+	REG_OPERAND_A = 2,		// OA: general purpose operand
+	REG_OPERAND_B = 3,		// OB: general purpose operand
+	REG_RET_ADDR = 4,		// RA: where to go after the current function returns
+	REG_MODULE_PTR = 5,		// MP: base address of the current module; needed to turn various offsets into absolute addresses
+	REG_FRAME_PTR = 6,		// FP: args and locals are accessed relative to the frame pointer, which is stable throughout a function
+	REG_STACK_PTR = 7,		// SP: the stack is used for passing args and evaluating nested expressions
 };
 
 typedef union
@@ -82,7 +88,7 @@ typedef union
 	struct
 	{
 		uword regC : 3;
-		uword comp : 4; // COMP instructions only
+		uword comp : 4;
 		uword regB : 3;
 		uword regA : 3;
 		uword opCode : 3;
@@ -105,16 +111,17 @@ typedef union
 
 typedef struct
 {
-	uword programCounter;
-	uword startAddress;
-	uword instruction;
-	uword registers[8];
-	int ticks;
+	uint16_t instructionPointer;
+	uint16_t irq;
+	uint16_t registers[8];
 	Memory memory;
 	Device device;
+	int ticks;
+	bool interruptEnable;
 	bool halt;
+	bool poweredOn;
 } Processor;
 
 Processor* Processor_New(Device device, Memory memory);
-void Processor_Reset(Processor* p, uword startAddress, uword stackPointer);
+bool Processor_Boot(Processor *p);
 void Processor_Run(Processor* p, int ticks);

@@ -1,0 +1,66 @@
+void Sleep
+	(int milliseconds)
+	(int address)
+{
+	address = 256;
+	@address = milliseconds;
+
+	while (@address != 0)
+	{
+		instr(65408); # halt
+	}
+}
+
+void PrintStr
+	(string str)
+	(int address)
+{
+	address = 257;
+	@address = str;
+}
+
+void PrintInt
+	(int x)
+	(int address)
+{
+	address = 258;
+	@address = x;
+}
+
+void BreakBlock
+	()
+	(int address)
+{
+	address = 259;
+	@address = 1;
+}
+
+void ChangeVelocity
+	(int x, int y, int z)
+	(int address)
+{
+	address = 261;
+	@address = x;
+	address = 262;
+	@address = y;
+	address = 263;
+	@address = z;
+
+	address = 260;
+	@address = 1;
+}
+
+int CheckInput
+	()
+	(int address, int temp)
+{
+	address = 128;
+	temp = @address
+
+	if (temp != 0)
+	{
+		@address = 0;
+	}
+
+	return temp;
+}

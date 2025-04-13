@@ -71,6 +71,8 @@ static void ReadWord(Lexer* lex)
 
 	static const char* keywords[] =
 	{
+		"import",
+		"instr",
 		"if",
 		"else",
 		"while",
@@ -242,8 +244,6 @@ Lexer* Lexer_OpenFile(char* filePath)
 	else
 	{
 		// initialize struct
-		lex->buffer = calloc(CONST_BUFFERSIZE, sizeof(char));
-		lex->subbuffer = calloc(CONST_SUBBUFSIZE, sizeof(char));
 		lex->i = -1;
 		lex->n = 0;
 		lex->token.type = TOK_NULL;
@@ -318,6 +318,7 @@ void Lexer_NextToken(Lexer* lex)
 	case SYM_STAR:
 	case SYM_SLASH:
 	case SYM_PERCENT:
+	case SYM_AT:
 		lex->token.type = TOK_SYMBOL;
 		lex->token.value.asSymbol = c;
 		NextChar(lex);
@@ -349,8 +350,6 @@ void Lexer_Destroy(Lexer* lex)
 	if (lex != NULL)
 	{
 		fclose(lex->file);
-		free(lex->buffer);
-		free(lex->subbuffer);
 		free(lex);
 	}
 }

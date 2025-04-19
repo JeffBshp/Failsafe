@@ -121,7 +121,7 @@ GameState *Game_New(void)
 	gs->programFilePath = "res/code/demo.tmp";
 	Memory mem = Memory_New(16384);
 	Device device = Device_New(gs->world, gs->selectedObject);
-	gs->codeDemoProcessor = Processor_New(device, mem);
+	gs->codeDemoCpu = Cpu_New(device, mem);
 
 	// finish setting up GL buffers
 	Render_InitBuffers(gs->render);
@@ -142,8 +142,8 @@ void Game_Destroy(GameState *gs)
 		Shape_FreeShape(gs->render->shapes + i);
 	}
 
-	Memory_Destroy(gs->codeDemoProcessor->memory);
-	free(gs->codeDemoProcessor);
+	Memory_Destroy(gs->codeDemoCpu->memory);
+	free(gs->codeDemoCpu);
 
 	Render_Destroy(gs->render);
 }
@@ -262,7 +262,7 @@ void Game_Update(GameState* gs)
 		cam->vel[0], cam->vel[1], cam->vel[2],
 		gs->world->regions.size, gs->world->allChunks.size);
 
-	Processor_Run(gs->codeDemoProcessor, ticks);
+	Cpu_Run(gs->codeDemoCpu, ticks);
 	Physics_Collide(rs->shapes, rs->numShapes);
 	Editor_Update(gs->codeTextBox, ticks);
 	Editor_Update(gs->hudTextBox, ticks);

@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "processor.h"
+#include "cpu.h"
 #include "memory.h"
 
 Memory Memory_New(uword size)

@@ -5,7 +5,7 @@
 
 #include "kernel.h"
 #include "compiler.h"
-#include "../hardware/processor.h"
+#include "../hardware/cpu.h"
 
 // insert an instruction with 3 register operands
 static void Instr3(uint16_t *ptr, uint16_t opCode, uint16_t regA, uint16_t regB, uint16_t comp, uint16_t regC)

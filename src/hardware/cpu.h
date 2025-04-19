@@ -120,8 +120,8 @@ typedef struct
 	bool interruptEnable;
 	bool halt;
 	bool poweredOn;
-} Processor;
+} Cpu;
 
-Processor* Processor_New(Device device, Memory memory);
-bool Processor_Boot(Processor *p);
-void Processor_Run(Processor* p, int ticks);
+Cpu* Cpu_New(Device device, Memory memory);
+bool Cpu_Boot(Cpu *cpu);
+void Cpu_Run(Cpu* cpu, int ticks);

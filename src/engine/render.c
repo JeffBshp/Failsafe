@@ -16,9 +16,6 @@
 #include "editor.h"
 #include "utility.h"
 #include "mesher.h"
-#include "../hardware/device.h"
-#include "../hardware/memory.h"
-#include "../hardware/processor.h"
 
 static void LoadTextureArray(GLuint texture, const char* filePath, int nCols, int nRows)
 {

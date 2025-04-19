@@ -5,7 +5,7 @@
 #include "compiler.h"
 #include "float16.h"
 #include "parser.h"
-#include "../hardware/processor.h"
+#include "../hardware/cpu.h"
 
 #pragma region Helpers
 

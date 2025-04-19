@@ -10,7 +10,7 @@
 #include "camera.h"
 #include "shape.h"
 #include "world.h"
-#include "../hardware/processor.h"
+#include "../hardware/cpu.h"
 
 typedef struct
 {
@@ -86,7 +86,7 @@ typedef struct
 	World *world;
 	Model *selectedObject;
 	char *programFilePath;
-	Processor *codeDemoProcessor;
+	Cpu *codeDemoCpu;
 	TextBox *codeTextBox;
 	TextBox *hudTextBox;
 

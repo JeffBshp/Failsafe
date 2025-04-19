@@ -4,39 +4,39 @@
 #include "cglm/cglm.h"
 #include "../language/kernel.h"
 #include "../language/float16.h"
-#include "processor.h"
+#include "cpu.h"
 #include "device.h"
 #include "memory.h"
 
 // Originally based on the RiSC-16 Instruction Set Architecture.
 
-Processor* Processor_New(Device device, Memory memory)
+Cpu* Cpu_New(Device device, Memory memory)
 {
-	Processor* p = calloc(1, sizeof(Processor));
-	p->cycles = 0;
-	p->halt = true;
-	p->device = device;
-	p->memory = memory;
-	p->device.memory = memory;
-	p->device.irq = &p->irq;
-	p->poweredOn = false;
-	return p;
+	Cpu* cpu = calloc(1, sizeof(Cpu));
+	cpu->cycles = 0;
+	cpu->halt = true;
+	cpu->device = device;
+	cpu->memory = memory;
+	cpu->device.memory = memory;
+	cpu->device.irq = &cpu->irq;
+	cpu->poweredOn = false;
+	return cpu;
 }
 
-bool Processor_Boot(Processor *p)
+bool Cpu_Boot(Cpu *cpu)
 {
-	memset(p->registers, 0, 16);
-	memset(p->memory.data, 0, p->memory.n * sizeof(uint16_t));
-	uint16_t startAddress = Kernel_Load(p->memory.data);
+	memset(cpu->registers, 0, 16);
+	memset(cpu->memory.data, 0, cpu->memory.n * sizeof(uint16_t));
+	uint16_t startAddress = Kernel_Load(cpu->memory.data);
 	if (startAddress == 0xffff) return false;
 
-	p->device.timerTicks = -1;
-	p->instructionPointer = startAddress;
-	p->irq = 0;
-	p->cycles = 0;
-	p->interruptEnable = false;
-	p->halt = false;
-	p->poweredOn = true;
+	cpu->device.timerTicks = -1;
+	cpu->instructionPointer = startAddress;
+	cpu->irq = 0;
+	cpu->cycles = 0;
+	cpu->interruptEnable = false;
+	cpu->halt = false;
+	cpu->poweredOn = true;
 	return true;
 }
 
@@ -165,13 +165,13 @@ static inline void BinaryOp(uword* r, Instruction instr)
 
 #pragma endregion
 
-static void ExecuteNextInstruction(Processor *p)
+static void ExecuteNextInstruction(Cpu *cpu)
 {
-	uword* r = p->registers;
-	uword* mem = p->memory.data;
+	uword* r = cpu->registers;
+	uword* mem = cpu->memory.data;
 	Instruction instr;
-	instr.bits = mem[p->instructionPointer];
-	uword next = p->instructionPointer + 1;
+	instr.bits = mem[cpu->instructionPointer];
+	uword next = cpu->instructionPointer + 1;
 	uword result = 0;
 
 	switch (instr.opCode)
@@ -236,16 +236,16 @@ static void ExecuteNextInstruction(Processor *p)
 					// pop registers from when the task was interrupted
 					for (int i = 6; i >= 1; i--)
 						r[i] = mem[--(r[REG_STACK_PTR])];
-					p->interruptEnable = true;
+					cpu->interruptEnable = true;
 					break;
 				case OPXX_IEN:
-					p->interruptEnable = instr.immed7 != 0;
+					cpu->interruptEnable = instr.immed7 != 0;
 					break;
 				case OPXX_INT:
-					p->irq |= 1 << (instr.immed7 & 0x0f);
+					cpu->irq |= 1 << (instr.immed7 & 0x0f);
 					break;
 				case OPXX_HALT:
-					p->halt = true;
+					cpu->halt = true;
 					break;
 				default: break;
 			}
@@ -256,41 +256,41 @@ static void ExecuteNextInstruction(Processor *p)
 	default: break;
 	}
 
-	p->instructionPointer = next;
+	cpu->instructionPointer = next;
 }
 
 // Runs the processor for a certain number of ticks (milliseconds).
 // It runs at one cycle per tick, which is 1 kHz.
 // All instructions take exactly one cycle.
-void Processor_Run(Processor* p, int ticks)
+void Cpu_Run(Cpu* cpu, int ticks)
 {
-	if (!p->poweredOn) return;
+	if (!cpu->poweredOn) return;
 
 	uint64_t cycles = ticks * 50ull;
 
-	if (p->interruptEnable && p->irq != 0)
+	if (cpu->interruptEnable && cpu->irq != 0)
 	{
 		int irq, bit, isr;
 		for (irq = 0; irq < 16; irq++)
 		{
 			bit = 1 << irq;
-			if ((p->irq & bit) != 0)
+			if ((cpu->irq & bit) != 0)
 			{
-				isr = p->memory.data[irq];
-				p->irq &= ~bit;
+				isr = cpu->memory.data[irq];
+				cpu->irq &= ~bit;
 
 				if (isr != 0)
 				{
 					// push registers onto the stack of the interrupted task
 					for (int i = 1; i <= 6; i++)
-						p->memory.data[(p->registers[REG_STACK_PTR])++] = p->registers[i];
+						cpu->memory.data[(cpu->registers[REG_STACK_PTR])++] = cpu->registers[i];
 
 					// push the RA needed to resume the task later
-					p->memory.data[(p->registers[REG_STACK_PTR])++] = p->instructionPointer;
+					cpu->memory.data[(cpu->registers[REG_STACK_PTR])++] = cpu->instructionPointer;
 
-					p->interruptEnable = false;
-					p->instructionPointer = isr;
-					p->halt = false;
+					cpu->interruptEnable = false;
+					cpu->instructionPointer = isr;
+					cpu->halt = false;
 					break;
 				}
 			}
@@ -298,13 +298,13 @@ void Processor_Run(Processor* p, int ticks)
 	}
 
 	// Calibrate cycles on the first frame. It will begin executing next frame.
-	if (p->cycles == 0) p->cycles = cycles;
+	if (cpu->cycles == 0) cpu->cycles = cycles;
 
-	while (p->cycles < cycles && !p->halt && p->instructionPointer < p->memory.n)
+	while (cpu->cycles < cycles && !cpu->halt && cpu->instructionPointer < cpu->memory.n)
 	{
-		ExecuteNextInstruction(p);
-		p->cycles++;
+		ExecuteNextInstruction(cpu);
+		cpu->cycles++;
 	}
 
-	Device_Update(&p->device, ticks);
+	Device_Update(&cpu->device, ticks);
 }

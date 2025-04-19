@@ -5,7 +5,7 @@
 
 #include "lexer.h"
 #include "parser.h"
-#include "../hardware/processor.h"
+#include "../hardware/cpu.h"
 
 enum
 {

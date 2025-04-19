@@ -15,7 +15,7 @@
 #include "compress.h"
 #include "../hardware/device.h"
 #include "../hardware/memory.h"
-#include "../hardware/processor.h"
+#include "../hardware/cpu.h"
 #include "../language/parser.h"
 #include "../language/compiler.h"
 
@@ -37,12 +37,12 @@ static void SelectSphere(GameState* gs, int next)
 
 static void RunProgram(GameState *gs)
 {
-	Processor *processor = gs->codeDemoProcessor;
+	Cpu *cpu = gs->codeDemoCpu;
 
-	if (processor->poweredOn)
+	if (cpu->poweredOn)
 	{
 		printf("Shutting down VM...\n");
-		processor->poweredOn = false;
+		cpu->poweredOn = false;
 	}
 	else
 	{
@@ -50,9 +50,9 @@ static void RunProgram(GameState *gs)
 		Editor_SaveToFile(gs->codeTextBox, gs->programFilePath);
 
 		printf("Booting virtual machine...\n");
-		if (Processor_Boot(processor))
+		if (Cpu_Boot(cpu))
 		{
-			Memory_WriteFile(processor->memory, "res/code/out.mem");
+			Memory_WriteFile(cpu->memory, "res/code/out.mem");
 		}
 	}
 }
@@ -100,7 +100,7 @@ static void HandleKeyDown(GameState *gs, SDL_KeyCode sym)
 
 	case SDLK_t:
 		key->t = true;
-		Device_GiveInput(&(gs->codeDemoProcessor->device), 'T');
+		Device_GiveInput(&(gs->codeDemoCpu->device), 'T');
 		break;
 	case SDLK_g:
 		key->g = true;
@@ -117,7 +117,7 @@ static void HandleKeyDown(GameState *gs, SDL_KeyCode sym)
 		break;
 	case SDLK_y:
 		key->y = true;
-		Device_GiveInput(&(gs->codeDemoProcessor->device), 'Y');
+		Device_GiveInput(&(gs->codeDemoCpu->device), 'Y');
 		break;
 
 	case SDLK_i:

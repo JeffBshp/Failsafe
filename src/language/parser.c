@@ -20,6 +20,8 @@ static DataType TokenToDataType(Token tok)
 			return DAT_VOID;
 		case KW_INT:
 			return DAT_INT;
+		case KW_UINT:
+			return DAT_UINT;
 		case KW_FLOAT:
 			return DAT_FLOAT;
 		case KW_BOOL:
@@ -83,6 +85,11 @@ static inline void SkipSymbol(Lexer* lex, TokenSymbol sym)
 static inline bool TrySkipSymbol(Lexer* lex, TokenSymbol sym)
 {
 	return TrySkipToken(lex, (Token) { .type = TOK_SYMBOL, .value = { .asSymbol = sym } });
+}
+
+static inline bool TrySkipKeyword(Lexer* lex, TokenKeyword kw)
+{
+	return TrySkipToken(lex, (Token) { .type = TOK_KEYWORD, .value = { .asKeyword = kw } });
 }
 
 static Token PeekToken(Lexer* lex)
@@ -323,7 +330,20 @@ static Expression* ReadExpressionAtom(Lexer* lex)
 			break;
 		}
 		break;
-	case TOK_KEYWORD: // fall through
+	case TOK_KEYWORD:
+		if (lex->token.value.asInt == KW_GETREG)
+		{
+			SkipSymbol(lex, SYM_LPAREN);
+			SkipToken(lex, (Token) { .type = TOK_LIT_INT });
+			e = MakeExpression(EX_GETREG);
+			e->content.asGetReg = lex->token.value.asInt;
+			SkipSymbol(lex, SYM_RPAREN);
+		}
+		else
+		{
+			lex->status = LEX_INVALIDTOKEN;
+		}
+		break;
 	default:
 		lex->status = LEX_INVALIDTOKEN;
 		break;
@@ -441,15 +461,44 @@ static Statement* ReadBlock(Lexer* lex, int* n)
 	return list;
 }
 
-static void ReadConditionStatement(Lexer* lex, Statement* s, StatementType type)
+static void ReadIfElse(Lexer *lex, ST_Condition *c)
+{
+	SkipSymbol(lex, SYM_LPAREN);
+	c->condition = ReadExpression(lex);
+	SkipSymbol(lex, SYM_RPAREN);
+	c->statements = ReadBlock(lex, &(c->numStatements));
+
+	if (TrySkipKeyword(lex, KW_ELSE))
+	{
+		c->orElse = calloc(1, sizeof(ST_Condition));
+
+		if (TrySkipKeyword(lex, KW_IF))
+		{
+			ReadIfElse(lex, c->orElse);
+		}
+		else
+		{
+			c->orElse->condition = NULL;
+			c->orElse->statements = ReadBlock(lex, &(c->orElse->numStatements));
+			c->orElse->orElse = NULL;
+		}
+	}
+	else
+	{
+		c->orElse = NULL;
+	}
+}
+
+static void ReadLoop(Lexer* lex, Statement* s)
 {
 	Lexer_NextToken(lex);
 	SkipSymbol(lex, SYM_LPAREN);
-	s->type = type;
+	s->type = ST_LOOP;
 	ST_Condition* cStatement = &(s->content.asCondition);
 	cStatement->condition = ReadExpression(lex);
 	SkipSymbol(lex, SYM_RPAREN);
 	cStatement->statements = ReadBlock(lex, &(cStatement->numStatements));
+	cStatement->orElse = NULL;
 }
 
 static void ReadRawInstruction(Lexer* lex, Statement* s)
@@ -463,24 +512,54 @@ static void ReadRawInstruction(Lexer* lex, Statement* s)
 	SkipSymbol(lex, SYM_SEMICOLON);
 }
 
+static void ReadSetReg(Lexer* lex, Statement* s)
+{
+	Lexer_NextToken(lex);
+	SkipSymbol(lex, SYM_LPAREN);
+	SkipToken(lex, (Token) { .type = TOK_LIT_INT });
+	s->type = ST_SETREG;
+	s->content.asSetReg.registerId = lex->token.value.asInt;
+	SkipSymbol(lex, SYM_COMMA);
+	s->content.asSetReg.expr = ReadExpression(lex);
+	SkipSymbol(lex, SYM_RPAREN);
+	SkipSymbol(lex, SYM_SEMICOLON);
+}
+
 static bool TryReadKeywordStatement(Lexer* lex, Statement* s)
 {
 	switch (lex->token.value.asKeyword)
 	{
 	case KW_IF:
-		ReadConditionStatement(lex, s, ST_CONDITION);
+		Lexer_NextToken(lex);
+		s->type = ST_CONDITION;
+		ReadIfElse(lex, &(s->content.asCondition));
 		return true;
 	case KW_WHILE:
-		ReadConditionStatement(lex, s, ST_LOOP);
+		ReadLoop(lex, s);
+		return true;
+	case KW_BREAK:
+		Lexer_NextToken(lex);
+		s->type = ST_BREAK;
+		SkipSymbol(lex, SYM_SEMICOLON);
 		return true;
 	case KW_RETURN:
 		Lexer_NextToken(lex);
 		s->type = ST_RETURN;
-		s->content.asReturn = ReadExpression(lex);
-		SkipSymbol(lex, SYM_SEMICOLON);
+		if (TrySkipSymbol(lex, SYM_SEMICOLON))
+		{
+			s->content.asReturn = NULL;
+		}
+		else
+		{
+			s->content.asReturn = ReadExpression(lex);
+			SkipSymbol(lex, SYM_SEMICOLON);
+		}
 		return true;
 	case KW_INSTR:
 		ReadRawInstruction(lex, s);
+		return true;
+	case KW_SETREG:
+		ReadSetReg(lex, s);
 		return true;
 	}
 
@@ -555,9 +634,7 @@ static void ParseFunction(Lexer* lex, Function* f)
 {
 	f->rtype = ReadType(lex);
 
-	const Token mainKeyword = { .type = TOK_KEYWORD, .value = { .asKeyword = KW_MAIN } };
-
-	if (TrySkipToken(lex, mainKeyword))
+	if (TrySkipKeyword(lex, KW_MAIN))
 	{
 		f->isMain = true;
 		f->name = "main";
@@ -586,9 +663,7 @@ SyntaxTree* Parser_ParseFile(char* filePath)
 	char *importBuffer[MAX_IMPORTS];
 	Lexer* lex = Lexer_OpenFile(filePath);
 
-	const Token importKeyword = { .type = TOK_KEYWORD, .value = { .asKeyword = KW_IMPORT } };
-
-	while (ast->numImports < MAX_IMPORTS && TrySkipToken(lex, importKeyword))
+	while (ast->numImports < MAX_IMPORTS && TrySkipKeyword(lex, KW_IMPORT))
 	{
 		importBuffer[ast->numImports++] = ReadIdentifier(lex);
 		SkipSymbol(lex, SYM_SEMICOLON);
@@ -605,6 +680,7 @@ SyntaxTree* Parser_ParseFile(char* filePath)
 
 	ast->functions = malloc(ast->numFunctions * sizeof(Function));
 	memcpy(ast->functions, functionBuffer, ast->numFunctions * sizeof(Function));
+	if (lex->status != LEX_ACTIVE && lex->status != LEX_ENDOFFILE) printf("Parse Error: %d\n", lex->status);
 	Lexer_Destroy(lex);
 
 	return ast;

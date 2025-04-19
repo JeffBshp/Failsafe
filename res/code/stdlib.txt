@@ -1,61 +1,91 @@
+# Suspends the current task for at least the given time in milliseconds.
 void Sleep
-	(int milliseconds)
-	(int address)
+	(uint milliseconds)
+	(uint address, uint temp, uint timeHigh, uint timeLow)
 {
-	address = 256;
-	@address = milliseconds;
+	# get the current system time in milliseconds, which updates every frame
+	address = 320;
+	timeHigh = @address;
+	address = address + 1; # 321
+	temp = @address;
 
-	while (@address != 0)
+	# add the desired sleep time
+	timeLow = temp + milliseconds;
+
+	if (timeLow < temp) # overflow
 	{
-		instr(65408); # halt
+		timeHigh = timeHigh + 1;
 	}
+
+	# set timeout for current task
+	address = 514;
+	address = @address + 6;
+	@address = timeHigh;
+	address = address + 1;
+	@address = timeLow;
+
+	# trigger the task switcher
+	address = 322;
+	@address = 1;
+
+	# halt: task switcher should not resume this task until the timeout expires
+	instr(65408);
 }
 
+# Sends a string to the output device.
 void PrintStr
 	(string str)
-	(int address)
+	(uint address)
 {
-	address = 257;
+	address = 328;
 	@address = str;
 }
 
+# Sends a 32-bit integer (split into two words) to the output device.
 void PrintInt
-	(int x)
-	(int address)
+	(uint high, uint low)
+	(uint address)
 {
-	address = 258;
-	@address = x;
-}
-
-void BreakBlock
-	()
-	(int address)
-{
-	address = 259;
+	address = 330;
+	@address = high;
+	address = address + 1;
+	@address = low;
+	address = address - 2;
 	@address = 1;
 }
 
+# Tells the hardware to try breaking a block at the current world position.
+void BreakBlock
+	()
+	(uint address)
+{
+	address = 336;
+	@address = 1;
+}
+
+# Tells the hardware to change its velocity in the game world.
 void ChangeVelocity
 	(int x, int y, int z)
 	(int address)
 {
-	address = 261;
+	address = 345;
 	@address = x;
-	address = 262;
+	address = 346;
 	@address = y;
-	address = 263;
+	address = 347;
 	@address = z;
 
-	address = 260;
+	address = 344;
 	@address = 1;
 }
 
+# Returns the last character received from the hardware, or zero.
 int CheckInput
 	()
 	(int address, int temp)
 {
-	address = 128;
-	temp = @address
+	address = 360;
+	temp = @address;
 
 	if (temp != 0)
 	{
@@ -63,4 +93,150 @@ int CheckInput
 	}
 
 	return temp;
+}
+
+# Compares unsigned 32 bit numbers. Returns true if a >= b.
+bool Compare32u
+	(uint aHigh, uint aLow, uint bHigh, uint bLow)
+	(bool a, bool b, bool c, bool d)
+{
+	a = aHigh > bHigh;
+	b = aHigh == bHigh;
+	c = aLow >= bLow;
+	d = b && c;
+	return a || d;
+}
+
+# This is a special function that should only be called from the task switcher ISR, which is triggered by a timer.
+# This selects a new task and returns the address of its PCB so that the ISR can resume that task.
+# If there was a task running at the time of the interrupt, then the stackPtr arg will be saved in its PCB before selecting a new task.
+# If no runnable task is found, this function returns 0 (null) and the ISR should re-enable interrupts and then halt.
+# This function always restarts the timer before returning.
+uint SwitchTask
+	(uint stackPtr)
+	(uint timeHigh, uint timeLow, uint minHigh, uint minLow, uint currentTask, uint listPtr, uint end, uint type, uint temp, bool passed)
+{
+	# get the current system time in milliseconds, which updates every frame
+	timeHigh = 320;
+	timeHigh = @timeHigh;
+	timeLow = 321;
+	timeLow = @timeLow;
+
+	# will search for the soonest task in case none are scheduled to run yet
+	minHigh = 65535;
+	minLow = 65535;
+
+	# Notes on hardcoded addresses:
+	# (I need to implement things like constants and structs)
+	# 512: number of list entries
+	# 513: address of the module for the currently running task
+	# 514: address of pcb for current task
+	# ...
+	# 520: start of allocation list
+
+	listPtr = 512;
+	end = @listPtr; # number of entries
+	listPtr = listPtr + 1; # 513
+	currentTask = @listPtr; # module address of the current task
+
+	listPtr = 520;
+	end = listPtr + (end * 12); # 12 words in each entry
+
+	# The first runnable task in the list AFTER the current one will be selected.
+	# If no current task, passed=true and the first one in the list will be selected.
+	passed = currentTask == 0;
+
+	while (listPtr < end)
+	{
+		type = listPtr + 2;
+		type = @type;
+
+		# type 0 means it's a task, not a library module
+		if (type == 0)
+		{
+			# get the task's scheduled time from
+			type = listPtr + 6; # time high bits (reusing a variable)
+			type = @type;
+			temp = listPtr + 7; # time low bits
+			temp = @temp;
+
+			if (passed && Compare32u(timeHigh, timeLow, type, temp))
+			{
+				break; # found a runnable task
+			}
+
+			if (Compare32u(minHigh, minLow, type, temp))
+			{
+				# not runnable, but it's the soonest one so far
+				minHigh = type;
+				minLow = temp;
+			}
+
+			if (@listPtr == currentTask)
+			{
+				# found the task that was interrupted; save its stack pointer
+				passed = true;
+				temp = listPtr + 4;
+				@temp = stackPtr;
+			}
+		}
+
+		listPtr = listPtr + 12;
+	}
+
+	temp = 513;
+
+	# if no runnable task was found
+	if (listPtr >= end)
+	{
+		# set current task to null
+		# ISR will halt after this function returns
+		listPtr = 0;
+		@temp = 0;
+		temp = temp + 1; # 514
+		@temp = 0;
+		temp = 322;
+
+		if (minLow == 0)
+		{
+			minLow = minLow + 1;
+		}
+
+		# set timer for next task switch
+		if (timeHigh > minHigh)
+		{
+			@temp = 1;
+		}
+		else if (timeHigh == minHigh)
+		{
+			if (timeLow >= minLow)
+			{
+				@temp = 1;
+			}
+			else
+			{
+				@temp = minLow - timeLow;
+			}
+		}
+		else
+		{
+			# I think the delay here should be: 65535 - minLow + timeLow
+			# but it's not working; instead use a short fixed delay.
+			@temp = 100;
+			PrintInt(0, @temp);
+		}
+	}
+	else
+	{
+		# set the current task
+		@temp = @listPtr;
+		temp = temp + 1; # 514
+		@temp = listPtr;
+
+		# set timer for next task switch
+		temp = 322;
+		@temp = 100;
+	}
+
+	return listPtr;
 }

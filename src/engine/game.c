@@ -105,7 +105,7 @@ GameState *Game_New(void)
 
 	// code text box
 	char initialText[5000];
-	size_t n = ReadWholeFile("res/code/kernel.txt", initialText, 5000);
+	size_t n = ReadWholeFile("res/code/demo.txt", initialText, 5000);
 	int nCols = 75, nRows = 50;
 	gs->codeTextBox = Shape_MakeTextBox(shapes + 2, nCols, nRows, true, initialText);
 	gs->codeTextBox->i = n - 1;
@@ -118,7 +118,7 @@ GameState *Game_New(void)
 	printf("Created shapes.\n");
 
 	// virtual computer
-	gs->programFilePath = "res/code/kernel.tmp";
+	gs->programFilePath = "res/code/demo.tmp";
 	Memory mem = Memory_New(16384);
 	Device device = Device_New(gs->world, gs->selectedObject);
 	gs->codeDemoProcessor = Processor_New(device, mem);

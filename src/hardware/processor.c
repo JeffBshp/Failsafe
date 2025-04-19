@@ -13,7 +13,7 @@
 Processor* Processor_New(Device device, Memory memory)
 {
 	Processor* p = calloc(1, sizeof(Processor));
-	p->ticks = 0;
+	p->cycles = 0;
 	p->halt = true;
 	p->device = device;
 	p->memory = memory;
@@ -30,10 +30,11 @@ bool Processor_Boot(Processor *p)
 	uint16_t startAddress = Kernel_Load(p->memory.data);
 	if (startAddress == 0xffff) return false;
 
+	p->device.timerTicks = -1;
 	p->instructionPointer = startAddress;
 	p->irq = 0;
-	p->ticks = 0;
-	p->interruptEnable  = false;
+	p->cycles = 0;
+	p->interruptEnable = false;
 	p->halt = false;
 	p->poweredOn = true;
 	return true;
@@ -55,13 +56,33 @@ static inline void Shift(uword* r, word n)
 	SetReg(r, REG_RESULT, result);
 }
 
-static inline void Comp(uword* r, Instruction instr)
+static inline void CompSigned(uword* r, uword comp)
 {
-	word a = r[instr.regB];
-	word b = r[instr.regC];
+	word a = r[REG_OPERAND_A];
+	word b = r[REG_OPERAND_B];
 	bool result;
 
-	switch (instr.comp)
+	switch (comp)
+	{
+	case COMP_EQ: result = a == b; break;
+	case COMP_NE: result = a != b; break;
+	case COMP_LT: result = a < b; break;
+	case COMP_LE: result = a <= b; break;
+	case COMP_GT: result = a > b; break;
+	case COMP_GE: result = a >= b; break;
+	default: return;
+	}
+
+	r[REG_RESULT] = result ? 1 : 0;
+}
+
+static inline void CompUnsigned(uword* r, uword comp)
+{
+	uword a = r[REG_OPERAND_A];
+	uword b = r[REG_OPERAND_B];
+	bool result;
+
+	switch (comp)
 	{
 	case COMP_EQ: result = a == b; break;
 	case COMP_NE: result = a != b; break;
@@ -190,9 +211,6 @@ static void ExecuteNextInstruction(Processor *p)
 			r[REG_RET_ADDR] = next; // set RA
 			next = r[instr.regB]; // jump to function
 			break;
-		case OPX_COMP:
-			Comp(r, instr);
-			break;
 		case OPX_BINOP:
 			BinaryOp(r, instr);
 			break;
@@ -202,14 +220,22 @@ static void ExecuteNextInstruction(Processor *p)
 				case OPXX_SHIFT:
 					Shift(r, instr.immed7);
 					break;
+				case OPXX_COMPS:
+					CompSigned(r, instr.comp);
+					break;
+				case OPXX_COMPU:
+					CompUnsigned(r, instr.comp);
+					break;
 				case OPXX_RET:
 					r[REG_STACK_PTR] = r[REG_FRAME_PTR]; // drop args/locals from stack
 					next = r[REG_RET_ADDR]; // jump to RA
 					break;
 				case OPXX_IRET:
-					next = r[REG_RET_ADDR];
-					r[REG_STACK_PTR] -= 8;
-					memcpy(r, mem + r[REG_STACK_PTR], 16);
+					// pop return address
+					next = mem[--(r[REG_STACK_PTR])];
+					// pop registers from when the task was interrupted
+					for (int i = 6; i >= 1; i--)
+						r[i] = mem[--(r[REG_STACK_PTR])];
 					p->interruptEnable = true;
 					break;
 				case OPXX_IEN:
@@ -240,6 +266,8 @@ void Processor_Run(Processor* p, int ticks)
 {
 	if (!p->poweredOn) return;
 
+	uint64_t cycles = ticks * 50ull;
+
 	if (p->interruptEnable && p->irq != 0)
 	{
 		int irq, bit, isr;
@@ -253,12 +281,15 @@ void Processor_Run(Processor* p, int ticks)
 
 				if (isr != 0)
 				{
-					memcpy(p->memory.data + p->registers[REG_STACK_PTR], p->registers, 16);
-					p->registers[REG_STACK_PTR] += 8;
-					p->registers[REG_RET_ADDR] = p->instructionPointer;
+					// push registers onto the stack of the interrupted task
+					for (int i = 1; i <= 6; i++)
+						p->memory.data[(p->registers[REG_STACK_PTR])++] = p->registers[i];
+
+					// push the RA needed to resume the task later
+					p->memory.data[(p->registers[REG_STACK_PTR])++] = p->instructionPointer;
+
 					p->interruptEnable = false;
 					p->instructionPointer = isr;
-					p->ticks = ticks;
 					p->halt = false;
 					break;
 				}
@@ -266,13 +297,13 @@ void Processor_Run(Processor* p, int ticks)
 		}
 	}
 
-	// Calibrate ticks on the first frame. It will begin executing next frame.
-	if (p->ticks == 0) p->ticks = ticks;
+	// Calibrate cycles on the first frame. It will begin executing next frame.
+	if (p->cycles == 0) p->cycles = cycles;
 
-	while (p->ticks < ticks && !p->halt && p->instructionPointer < p->memory.n)
+	while (p->cycles < cycles && !p->halt && p->instructionPointer < p->memory.n)
 	{
 		ExecuteNextInstruction(p);
-		p->ticks++;
+		p->cycles++;
 	}
 
 	Device_Update(&p->device, ticks);

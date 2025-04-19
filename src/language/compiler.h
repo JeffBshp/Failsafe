@@ -14,6 +14,8 @@ enum
 	MAXSTRLEN = 500,
 	MAXNAMELEN = 100,
 	MAXFUNCTIONS = 100,
+	MAXLOOPS = 10,
+	MAXBREAKS = 10,
 };
 
 typedef enum
@@ -31,6 +33,11 @@ typedef enum
 	COMPILE_INVALIDOP, // invalid data type(s) for a given operation, or the op itself was not recognized
 	COMPILE_INVALIDEXPR, // invalid expression type (somehow)
 	COMPILE_INVALIDTYPE, // tried to assign a value to a variable of an incompatible type
+	COMPILE_INVALIDRETTYPE, // tried to return the wrong type from a function
+	COMPILE_INVALIDREG, // tried to do getreg or setreg on an invalid register ID
+	COMPILE_INVALIDBREAK, // tried to break with no loop
+	COMPILE_TOOMANYBREAKS, // compiler limits the number of break statements per loop
+	COMPILE_TOOMANYLOOPS, // too many nested loops
 	COMPILE_BRANCHTOOFAR, // too many instructions inside a loop or conditional body to skip over with a branch instruction
 	COMPILE_INVALIDARG, // function argument has wrong type, or function called with wrong number of args
 	COMPILE_INVALIDSTMT, // invalid statement type (somehow)
@@ -62,6 +69,9 @@ typedef struct
 	Instruction instructions[MAXINSTR];
 	FunctionReference functionReferences[MAXFUNCCALS];
 	FunctionSignature functionSignatures[MAXFUNCTIONS];
+	uint16_t breakOffsets[MAXLOOPS][MAXBREAKS];
+	uint8_t numBreaks[MAXBREAKS];
+	int numLoops;
 	int numInstructions;
 	int numReferences;
 	int numFunctions;

@@ -41,7 +41,7 @@ static void RunProgram(GameState *gs)
 
 	if (processor->poweredOn)
 	{
-		printf("Shutting down processor...\n");
+		printf("Shutting down VM...\n");
 		processor->poweredOn = false;
 	}
 	else
@@ -100,6 +100,7 @@ static void HandleKeyDown(GameState *gs, SDL_KeyCode sym)
 
 	case SDLK_t:
 		key->t = true;
+		Device_GiveInput(&(gs->codeDemoProcessor->device), 'T');
 		break;
 	case SDLK_g:
 		key->g = true;
@@ -116,6 +117,7 @@ static void HandleKeyDown(GameState *gs, SDL_KeyCode sym)
 		break;
 	case SDLK_y:
 		key->y = true;
+		Device_GiveInput(&(gs->codeDemoProcessor->device), 'Y');
 		break;
 
 	case SDLK_i:

@@ -7,6 +7,7 @@ typedef enum
 	DAT_INVALID,
 	DAT_VOID,
 	DAT_INT,
+	DAT_UINT,
 	DAT_FLOAT,
 	DAT_BOOL,
 	DAT_STRING,
@@ -42,6 +43,7 @@ typedef enum
 	EX_READ,
 	EX_OPERATION,
 	EX_CALL,
+	EX_GETREG,
 } ExpressionType;
 
 typedef enum
@@ -50,8 +52,10 @@ typedef enum
 	ST_CONDITION,
 	ST_LOOP,
 	ST_CALL,
+	ST_BREAK,
 	ST_RETURN,
 	ST_INSTR,
+	ST_SETREG,
 } StatementType;
 
 struct Function;
@@ -96,12 +100,16 @@ struct Function
 	bool isMain;
 };
 
-typedef struct
+struct ST_Condition;
+typedef struct ST_Condition ST_Condition;
+
+struct ST_Condition
 {
 	Expression* condition;
 	Statement* statements;
 	int numStatements;
-} ST_Condition;
+	ST_Condition* orElse;
+};
 
 typedef struct
 {
@@ -135,12 +143,19 @@ typedef struct
 	bool derefLhs;
 } ST_Assign;
 
+typedef struct
+{
+	int registerId;
+	Expression *expr;
+} ST_SetReg;
+
 union ExpressionUnion
 {
 	EX_Value asValue;
 	EX_Read asRead;
 	EX_Operation asOperation;
 	ST_Call asCall;
+	int asGetReg; // the integer here is the register ID
 };
 
 struct Expression
@@ -155,7 +170,8 @@ union StatementUnion
 	ST_Condition asCondition;
 	ST_Call asCall;
 	ST_Return asReturn;
-	int asInstr;
+	ST_SetReg asSetReg;
+	int asInstr; // the integer here is the raw instruction
 };
 
 struct Statement

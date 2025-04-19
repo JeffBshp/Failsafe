@@ -103,14 +103,13 @@ static inline bool InstrStack(CompileContext* c, int opx, int reg)
 	return AddInstruction(c, instr);
 }
 
-static inline bool InstrComp(CompileContext* c, int left, int comp, int right)
+static inline bool InstrComp(CompileContext* c, int comp, bool isSigned)
 {
 	Instruction instr = { .bits = 0 };
 	instr.opCode = INSTR_EXT;
-	instr.regA = OPX_COMP;
-	instr.regB = left;
+	instr.regA = OPX_MORE;
+	instr.regB = isSigned ? OPXX_COMPS : OPXX_COMPU;
 	instr.comp = comp;
-	instr.regC = right;
 	return AddInstruction(c, instr);
 }
 
@@ -150,22 +149,31 @@ static bool LoadFullWord(CompileContext* c, uword regIndex, uword value)
 	return Instr2R(c, INSTR_ADDI, regIndex, regIndex, immed);
 }
 
+static inline bool BothAreIntegers(DataType a, DataType b)
+{
+	return (a == DAT_INT || a == DAT_UINT) && (b == DAT_INT || b == DAT_UINT);
+}
+
 #pragma endregion
 
 #pragma region Expressions
 
-static bool CompileValueInt(CompileContext* c, int v)
+// TODO: give warning for implicit conversion based on LHS
+static bool CompileValueInt(CompileContext* c, int v, DataType* type)
 {
+	*type = DAT_INT;
+
 	if (-64 <= v && v <= 63)
 	{
 		return Instr2R(c, INSTR_ADDI, REG_RESULT, REG_ZERO, v);
 	}
-	else if (v < -32768 || 32767 < v)
+	else if (v < -32768 || 65535 < v)
 	{
 		c->status = COMPILE_INTOUTOFRANGE;
 		return false;
 	}
 
+	if (v > 32767) *type = DAT_UINT;
 	return LoadFullWord(c, REG_RESULT, v);
 }
 
@@ -238,7 +246,8 @@ static bool CompileValueExpression(CompileContext* c, EX_Value v, DataType* type
 
 	switch (v.type)
 	{
-	case DAT_INT: return CompileValueInt(c, v.value.asInt);
+	case DAT_INT: // fall through
+	case DAT_UINT: return CompileValueInt(c, v.value.asInt, type);
 	case DAT_FLOAT: return CompileValueFloat(c, v.value.asFloat);
 	case DAT_BOOL: return CompileValueBool(c, v.value.asBool);
 	case DAT_STRING: return CompileValueString(c, v.value.asString);
@@ -280,7 +289,7 @@ static bool CompileOpDereference(CompileContext* c, Expression* operand, DataTyp
 {
 	if (CompileExpression(c, operand, type))
 	{
-		if (*type == DAT_INT)
+		if (*type == DAT_INT || *type == DAT_UINT)
 		{
 			return Instr2R(c, INSTR_LW, REG_RESULT, REG_RESULT, 0);
 		}
@@ -297,8 +306,11 @@ static bool CompileOpNegate(CompileContext* c, Expression* operand, DataType* ty
 {
 	if (CompileExpression(c, operand, type))
 	{
-		if (*type == DAT_INT)
+		if (*type == DAT_INT || *type == DAT_UINT)
 		{
+			// override type if the original number was unsigned
+			*type = DAT_INT;
+
 			// bitwise NOT, then ADDI 1
 			Nand(c, 0xFFFF);
 			return Instr2R(c, INSTR_ADDI, REG_RESULT, REG_RESULT, 1);
@@ -322,8 +334,10 @@ static bool CompileOpNot(CompileContext* c, Expression* operand, DataType* type)
 {
 	if (CompileExpression(c, operand, type))
 	{
-		if (*type == DAT_INT)
+		if (*type == DAT_INT || *type == DAT_UINT)
 		{
+			// override type if the original number was signed
+			*type = DAT_UINT;
 			return Nand(c, 0xFFFF); // bitwise NOT
 		}
 		else if (*type == DAT_BOOL)
@@ -345,11 +359,18 @@ static bool CompileComparisonOp(CompileContext* c, DataType aType, DataType bTyp
 {
 	*resultType = DAT_BOOL;
 
-	if (aType == bType) // TODO: mixed types
+	if ((aType == DAT_INT || aType == DAT_UINT) &&
+		(bType == DAT_INT || bType == DAT_UINT))
 	{
-		if (aType == DAT_INT || (aType == DAT_BOOL && (comp == COMP_EQ || comp == COMP_NE)))
+		// default to a signed comparison if at least one is signed
+		bool isSigned = aType == DAT_INT || bType == DAT_INT;
+		return InstrComp(c, comp, isSigned);
+	}
+	else if (aType == bType)
+	{
+		if (aType == DAT_BOOL && (comp == COMP_EQ || comp == COMP_NE))
 		{
-			return InstrComp(c, REG_OPERAND_A, comp, REG_OPERAND_B);
+			return InstrComp(c, comp, false);
 		}
 		else if (aType == DAT_FLOAT)
 		{
@@ -370,23 +391,25 @@ static bool CompileComparisonOp(CompileContext* c, DataType aType, DataType bTyp
 
 static bool CompileArithmeticOp(CompileContext* c, DataType aType, DataType bType, OperationType op, DataType* resultType)
 {
-	if (aType == bType) // TODO: mixed types
+	if ((aType == DAT_INT || aType == DAT_UINT) &&
+		(bType == DAT_INT || bType == DAT_UINT))
 	{
-		if (aType == DAT_INT)
-		{
-			*resultType = DAT_INT;
+		// default to signed if mixing signed with unsigned
+		*resultType = aType == bType ? aType : DAT_INT;
 
-			switch (op)
-			{
-			case OP_MULTIPLY: return InstrBinop(c, BINOP_MULT);
-			case OP_DIVIDE: return InstrBinop(c, BINOP_DIV);
-			case OP_MODULO: return InstrBinop(c, BINOP_MOD);
-			case OP_ADD: return Instr3R(c, INSTR_ADD, REG_RESULT, REG_OPERAND_A, REG_OPERAND_B);
-			case OP_SUBTRACT: return InstrBinop(c, BINOP_SUB);
-			default: c->status = COMPILE_INVALIDOP; break;
-			}
+		switch (op)
+		{
+		case OP_MULTIPLY: return InstrBinop(c, BINOP_MULT);
+		case OP_DIVIDE: return InstrBinop(c, BINOP_DIV);
+		case OP_MODULO: return InstrBinop(c, BINOP_MOD);
+		case OP_ADD: return Instr3R(c, INSTR_ADD, REG_RESULT, REG_OPERAND_A, REG_OPERAND_B);
+		case OP_SUBTRACT: return InstrBinop(c, BINOP_SUB);
+		default: c->status = COMPILE_INVALIDOP; break;
 		}
-		else if (aType == DAT_FLOAT)
+	}
+	else if (aType == bType)
+	{
+		if (aType == DAT_FLOAT)
 		{
 			*resultType = DAT_FLOAT;
 
@@ -414,20 +437,22 @@ static bool CompileArithmeticOp(CompileContext* c, DataType aType, DataType bTyp
 
 static bool CompileBitwiseOp(CompileContext* c, DataType aType, DataType bType, OperationType op, DataType* resultType)
 {
-	if (aType == bType)
+	if ((aType == DAT_INT || aType == DAT_UINT) &&
+		(bType == DAT_INT || bType == DAT_UINT))
 	{
-		if (aType == DAT_INT)
-		{
-			*resultType = DAT_INT;
+		// default to unsigned if mixing signed with unsigned
+		*resultType = aType == bType ? aType : DAT_UINT;
 
-			switch (op)
-			{
-			case OP_BW_AND: return InstrBinop(c, BINOP_BW_AND);
-			case OP_BW_OR: return InstrBinop(c, BINOP_BW_OR);
-			default: c->status = COMPILE_INVALIDOP; break;
-			}
+		switch (op)
+		{
+		case OP_BW_AND: return InstrBinop(c, BINOP_BW_AND);
+		case OP_BW_OR: return InstrBinop(c, BINOP_BW_OR);
+		default: c->status = COMPILE_INVALIDOP; break;
 		}
-		else if (aType == DAT_BOOL)
+	}
+	else if (aType == bType)
+	{
+		if (aType == DAT_BOOL)
 		{
 			*resultType = DAT_BOOL;
 
@@ -522,8 +547,26 @@ static bool CompileOperationExpression(CompileContext* c, EX_Operation op, DataT
 
 static bool CompileCall(CompileContext* c, ST_Call call, DataType* type);
 
+static bool CompileGetReg(CompileContext *c, int regId, DataType* type)
+{
+	*type = DAT_UINT;
+
+	if (0 <= regId && regId <= 7)
+	{
+		// copy the target register to RR (unless it's the same register)
+		if (regId != REG_RESULT)
+			Instr3R(c, INSTR_ADD, REG_RESULT, regId, REG_ZERO);
+	}
+	else
+	{
+		c->status = COMPILE_INVALIDREG;
+	}
+
+	return c->status == COMPILE_SUCCESS;
+}
+
 // Adds instructions that evaluate an expression and place the result in REG_RESULT.
-// May overwrite R2 and R3.
+// This may use the stack and overwrite the two operand registers.
 static bool CompileExpression(CompileContext* c, Expression* e, DataType* type)
 {
 	switch (e->type)
@@ -532,6 +575,7 @@ static bool CompileExpression(CompileContext* c, Expression* e, DataType* type)
 	case EX_READ: return CompileReadExpression(c, e->content.asRead, type);
 	case EX_OPERATION: return CompileOperationExpression(c, e->content.asOperation, type);
 	case EX_CALL: return CompileCall(c, e->content.asCall, type);
+	case EX_GETREG: return CompileGetReg(c, e->content.asGetReg, type);
 	default: c->status = COMPILE_INVALIDEXPR; return false;
 	}
 }
@@ -556,7 +600,7 @@ static bool CompileAssign(CompileContext* c, ST_Assign a)
 
 	if (a.derefLhs)
 	{
-		if (p.type != DAT_INT)
+		if (p.type != DAT_INT && p.type != DAT_UINT)
 		{
 			c->status = COMPILE_INVALIDDEREF;
 			return false;
@@ -567,7 +611,7 @@ static bool CompileAssign(CompileContext* c, ST_Assign a)
 	}
 	else
 	{
-		if (type != p.type)
+		if (type != p.type && !BothAreIntegers(type, p.type))
 		{
 			c->status = COMPILE_INVALIDTYPE;
 			return false;
@@ -583,45 +627,95 @@ static bool CompileStatement(CompileContext* c, Statement s);
 
 static bool CompileCondition(CompileContext* c, ST_Condition cond)
 {
-	DataType type;
-	if (CompileExpression(c, cond.condition, &type) && type == DAT_BOOL)
+	int n1 = 0;
+	int n2 = 0;
+	Instruction* branchInstr1 = NULL; // conditional branch over the if block
+	Instruction* branchInstr2 = NULL; // inside the if block; unconditional branch over the else block
+
+	if (cond.condition != NULL)
 	{
-		if (Instr1R(c, INSTR_BEZ, REG_RESULT, 0))
+		DataType type;
+		if (CompileExpression(c, cond.condition, &type))
 		{
-			int n = c->numInstructions;
-			Instruction* branchInstr = c->instructions + n - 1;
-
-			for (int i = 0; i < cond.numStatements; i++)
+			if (type == DAT_BOOL)
 			{
-				if (!CompileStatement(c, cond.statements[i])) return false;
+				n1 = c->numInstructions;
+				Instr1R(c, INSTR_BEZ, REG_RESULT, 0);
+				branchInstr1 = c->instructions + n1;
 			}
-
-			n = c->numInstructions - n;
-
-			if (n > 511)
+			else
 			{
-				// too many instructions to branch over
-				c->status = COMPILE_BRANCHTOOFAR;
-				return false;
+				c->status = COMPILE_INVALIDTYPE;
 			}
-
-			branchInstr->immed10 = n;
-			return true;
 		}
 	}
 
-	return false;
+	if (c->status == COMPILE_SUCCESS)
+	{
+		for (int i = 0; i < cond.numStatements; i++)
+		{
+			if (!CompileStatement(c, cond.statements[i])) return false;
+		}
+
+		// if there's an else block, jump over it before exiting the if block
+		if (cond.orElse != NULL)
+		{
+			n2 = c->numInstructions;
+			Instr1R(c, INSTR_BEZ, REG_ZERO, 0);
+			branchInstr2 = c->instructions + n2;
+		}
+
+		// if there was a condition, then the branch needs to be filled in
+		if (branchInstr1 != NULL)
+		{
+			// the first branch needs to jump past the second one (if it exists)
+			// and land in the else block (if it exists) or on the next statement
+			n1 = c->numInstructions - n1 - 1;
+
+			// too many instructions to branch over?
+			if (n1 > 511) c->status = COMPILE_BRANCHTOOFAR;
+			else branchInstr1->immed10 = n1;
+		}
+	}
+
+	if (c->status == COMPILE_SUCCESS && cond.orElse != NULL)
+	{
+		// recursively compile the else block
+		if (CompileCondition(c, *cond.orElse))
+		{
+			// fill in the second branch so it jumps over the else block
+			n2 = c->numInstructions - n2 - 1;
+
+			if (n2 > 511) c->status = COMPILE_BRANCHTOOFAR;
+			else branchInstr2->immed10 = n2;
+		}
+	}
+
+	return c->status == COMPILE_SUCCESS;
 }
 
 static bool CompileLoop(CompileContext* c, ST_Condition cond)
 {
+	if (c->numLoops >= MAXLOOPS)
+	{
+		c->status = COMPILE_TOOMANYLOOPS;
+		return false;
+	}
+
 	int start = c->numInstructions;
 
 	DataType type;
 	if (CompileExpression(c, cond.condition, &type) && type == DAT_BOOL)
 	{
+		// insert a conditional branch that checks the loop condition
 		if (Instr1R(c, INSTR_BEZ, REG_RESULT, 0))
 		{
+			// reset breaks, increment nested loop level
+			memset(c->breakOffsets[c->numLoops], 0, MAXBREAKS);
+			c->numBreaks[c->numLoops] = 0;
+			c->numLoops++;
+
+			// remember the offset of the first branch instr
 			int n = c->numInstructions;
 			Instruction* branchInstr = c->instructions + n - 1;
 
@@ -639,6 +733,7 @@ static bool CompileLoop(CompileContext* c, ST_Condition cond)
 				return false;
 			}
 
+			// branch back to the start
 			if (Instr1R(c, INSTR_BEZ, REG_ZERO, loopBranch))
 			{
 				n = c->numInstructions - n;
@@ -650,7 +745,20 @@ static bool CompileLoop(CompileContext* c, ST_Condition cond)
 					return false;
 				}
 
+				// end this loop context
 				branchInstr->immed10 = n;
+				c->numLoops--;
+				int numBreaks = c->numBreaks[c->numLoops];
+				uint16_t *offsets = c->breakOffsets[c->numLoops];
+
+				// fill in break instructions so they branch out of the loop
+				for (int i = 0; i < numBreaks; i++)
+				{
+					uint16_t offset = offsets[i];
+					Instruction *breakInstr = c->instructions + offset;
+					breakInstr->immed10 = c->numInstructions - offset - 1;
+				}
+
 				return true;
 			}
 		}
@@ -659,6 +767,31 @@ static bool CompileLoop(CompileContext* c, ST_Condition cond)
 	return false;
 
 	// TODO: factor out from loops and conditions
+}
+
+static bool CompileBreak(CompileContext *c)
+{
+	if (c->numLoops == 0)
+	{
+		c->status = COMPILE_INVALIDBREAK;
+		return false;
+	}
+
+	int i = c->numLoops - 1;
+	int j = c->numBreaks[i]; // number of breaks before adding this one == the index of this new one
+
+	if (j >= MAXBREAKS)
+	{
+		c->status = COMPILE_TOOMANYBREAKS;
+		return false;
+	}
+
+	// remember this offset to revisit at the end of the loop
+	c->numBreaks[i]++;
+	c->breakOffsets[i][j] = c->numInstructions;
+
+	// insert branch instr to be modified later when the end of the loop is known
+	return Instr1R(c, INSTR_BEZ, REG_ZERO, 0);
 }
 
 static bool CompileCall(CompileContext* c, ST_Call call, DataType* type)
@@ -695,10 +828,12 @@ static bool CompileCall(CompileContext* c, ST_Call call, DataType* type)
 	// Push args to stack
 	for (int i = 0; i < call.numArguments; i++)
 	{
-		DataType type;
-		if (CompileExpression(c, call.arguments + i, &type))
+		DataType pType = fs->paramTypes[i];
+		DataType eType;
+
+		if (CompileExpression(c, call.arguments + i, &eType))
 		{
-			if (type == fs->paramTypes[i])
+			if (eType == pType || BothAreIntegers(eType, pType))
 				InstrStack(c, OPX_PUSH, REG_RESULT);
 			else
 				c->status = COMPILE_INVALIDARG;
@@ -743,10 +878,25 @@ static bool CompileReturn(CompileContext* c, ST_Return r)
 	Function* f = c->ast->functions + c->functionIndex;
 	DataType type;
 
-	if (CompileExpression(c, r, &type) && type == f->rtype)
+	if (r == NULL)
+	{
+		if (f->rtype == DAT_VOID)
+		{
+			Instr3R(c, INSTR_ADD, REG_RESULT, REG_ZERO, REG_ZERO);
+			Instr2R(c, INSTR_EXT, OPX_MORE, OPXX_RET, 0);
+		}
+		else
+		{
+			c->status = COMPILE_INVALIDRETTYPE;
+		}
+	}
+	else if (CompileExpression(c, r, &type))
 	{
 		// return value is in REG_RESULT
-		Instr2R(c, INSTR_EXT, OPX_MORE, OPXX_RET, 0);
+		if (type == f->rtype)
+			Instr2R(c, INSTR_EXT, OPX_MORE, OPXX_RET, 0);
+		else
+			c->status = COMPILE_INVALIDRETTYPE;
 	}
 
 	return c->status == COMPILE_SUCCESS;
@@ -758,6 +908,28 @@ static bool CompileRawInstruction(CompileContext* c, int raw)
 	return AddInstruction(c, instr);
 }
 
+static bool CompileSetReg(CompileContext* c, ST_SetReg s)
+{
+	DataType type;
+	int regId = s.registerId;
+
+	if (CompileExpression(c, s.expr, &type))
+	{
+		if (1 <= regId && regId <= 7)
+		{
+			// copy the result to the target register (unless it's the same register)
+			if (regId != REG_RESULT)
+				Instr3R(c, INSTR_ADD, regId, REG_RESULT, REG_ZERO);
+		}
+		else
+		{
+			c->status = COMPILE_INVALIDREG;
+		}
+	}
+
+	return c->status == COMPILE_SUCCESS;
+}
+
 static bool CompileStatement(CompileContext* c, Statement s)
 {
 	switch (s.type)
@@ -766,8 +938,10 @@ static bool CompileStatement(CompileContext* c, Statement s)
 	case ST_CONDITION: return CompileCondition(c, s.content.asCondition);
 	case ST_LOOP: return CompileLoop(c, s.content.asCondition);
 	case ST_CALL: return CompileCall(c, s.content.asCall, NULL);
+	case ST_BREAK: return CompileBreak(c);
 	case ST_RETURN: return CompileReturn(c, s.content.asReturn);
 	case ST_INSTR: return CompileRawInstruction(c, s.content.asInstr);
+	case ST_SETREG: return CompileSetReg(c, s.content.asSetReg);
 	default: c->status = COMPILE_INVALIDSTMT; return false;
 	}
 }
@@ -916,8 +1090,7 @@ static Program *ReadCompiledModule(char *sourcePath);
 // Also wites the compiled module to disk in a custom file format.
 Program *Compiler_BuildFile(char *filePath)
 {
-	// TODO: rebuild only if source file changed
-	Program *module = NULL;//ReadCompiledModule(filePath);
+	Program *module = ReadCompiledModule(filePath);
 	if (module != NULL) return module;
 
 	CompileContext* c = calloc(1, sizeof(CompileContext));
@@ -956,7 +1129,7 @@ Program *Compiler_BuildFile(char *filePath)
 			if (n >= MAXFUNCTIONS)
 			{
 				c->status = COMPILE_TOOMANYFUNCTIONS;
-				goto generate;
+				goto finish;
 			}
 
 			c->functionSignatures[n] = importedModule->functions[j];
@@ -965,10 +1138,10 @@ Program *Compiler_BuildFile(char *filePath)
 		}
 	}
 
-	generate:
 	c->numFunctions = n;
 	module = GenerateCode(c);
 
+	finish:
 	if (module == NULL) printf("Compile Error: %d\n", c->status);
 	else WriteCompiledModule(filePath, module);
 
@@ -1099,6 +1272,9 @@ static void WriteCompiledModule(char *sourcePath, Program *module)
 
 static Program *ReadCompiledModule(char *sourcePath)
 {
+	// TODO: rebuild only if source file changed
+	return NULL;
+
 	int n = strlen(sourcePath) + 1;
 	char *modulePath = malloc(n * sizeof(char));
 	strncpy(modulePath, sourcePath, n);

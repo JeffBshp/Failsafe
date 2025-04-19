@@ -22,16 +22,16 @@ typedef enum
 	OPX_PUSH = 0,
 	OPX_POP,
 	OPX_CALL,
-	OPX_RESERVED1, // not used
+	OPX_RESERVED1,
 	OPX_RESERVED2,
-	OPX_COMP, // compare instr.regB and instr.regC, save boolean to REG_RESULT
+	OPX_RESERVED3,
 	OPX_BINOP, // additional binary operations on B and C
 	OPX_MORE, // even more opcodes that only take immed7 as an operand
 
 	// doubly extended opcodes given by instr.regB when OPX_MORE is used
 	OPXX_SHIFT = 0,
-	OPXX_RESERVED1,
-	OPXX_RESERVED2,
+	OPXX_COMPS, // (signed) compare OA and OB, save boolean to RR
+	OPXX_COMPU, // (unsigned) compare OA and OB, save boolean to RR
 	OPXX_RET,
 	OPXX_IRET, // return from interrupt
 	OPXX_IEN, // set interrupt enable flag
@@ -116,7 +116,7 @@ typedef struct
 	uint16_t registers[8];
 	Memory memory;
 	Device device;
-	int ticks;
+	uint64_t cycles;
 	bool interruptEnable;
 	bool halt;
 	bool poweredOn;

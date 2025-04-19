@@ -12,7 +12,6 @@ Device Device_New(World *world, Model *model)
 	Device device;
 	device.world = world;
 	device.model = model;
-	device.ticks = 0;
 	device.timerTicks = -1;
 	return device;
 }
@@ -54,75 +53,75 @@ static int UnpackString(uint16_t *str, char *buffer)
 
 bool Device_Update(Device *device, int ticks)
 {
-	// Calibrate ticks on the first frame. It will begin executing next frame.
-	if (device->ticks == 0) device->ticks = ticks;
+	uint16_t *mem = device->memory.data;
 
-	while (device->ticks < ticks)
+	// write the current time where the software can find it
+	mem[320] = ticks >> 16;
+	mem[321] = ticks & 0x0000ffff;
+
+	// software will put data in these locations when it wants the device to do something
+	uint16_t timerRequest = mem[322];
+	uint16_t printStrRequest = mem[328];
+	uint16_t printIntRequest = mem[329];
+	uint16_t breakBlockRequest = mem[336];
+	uint16_t moveRequest = mem[344];
+
+	if (device->timerTicks > 0)
 	{
-		device->ticks += 10;
-
-		// software will put data in these locations when it wants the device to do something
-		uint16_t timerRequest = device->memory.data[256];
-		uint16_t printStrRequest = device->memory.data[257];
-		uint16_t printIntRequest = device->memory.data[258];
-		uint16_t breakBlockRequest = device->memory.data[259];
-		uint16_t moveRequest = device->memory.data[260];
-
-		if (device->timerTicks > 0)
+		if (ticks > device->timerTicks)
 		{
-			if (device->ticks > device->timerTicks)
-			{
-				// clear the timer
-				device->timerTicks = -1;
-				device->memory.data[256] = 0;
-				// trigger an interrupt on line 7 (arbitrarily chosen)
-				*device->irq |= 1 << 7;
-			}
+			// clear the timer
+			device->timerTicks = -1;
+			mem[322] = 0;
+			// trigger an interrupt on irq line 0
+			*device->irq |= 1 << 0;
 		}
-		else if (timerRequest != 0)
-		{
-			// set a timer
-			device->timerTicks = ticks + timerRequest;
-		}
+	}
+	else if (timerRequest != 0)
+	{
+		// set a timer
+		device->timerTicks = ticks + timerRequest;
+	}
 
-		if (printStrRequest != 0)
-		{
-			char buffer[100];
-			uint16_t *str = device->memory.data + printStrRequest;
-			int len = UnpackString(str, buffer);
-			printf("%s\n", buffer);
-			device->memory.data[257] = 0;
-		}
+	if (printStrRequest != 0)
+	{
+		char buffer[100];
+		uint16_t *str = mem + printStrRequest;
+		int len = UnpackString(str, buffer);
+		printf("String: %s\n", buffer);
+		mem[328] = 0;
+	}
 
-		if (printIntRequest != 0)
-		{
-			printf("%d\n", printIntRequest);
-			device->memory.data[258] = 0;
-		}
+	if (printIntRequest != 0)
+	{
+		printf("Integer: %d\n", (mem[330] << 16) | mem[331]);
+		mem[329] = 0;
+		mem[330] = 0;
+		mem[331] = 0;
+	}
 
-		if (breakBlockRequest != 0)
-		{
-			BreakBlock(device);
-			device->memory.data[259] = 0;
-		}
+	if (breakBlockRequest != 0)
+	{
+		BreakBlock(device);
+		mem[336] = 0;
+	}
 
-		if (moveRequest != 0)
-		{
-			// scale the numbers down because they are given as integers
-			device->model->vel[0] = 0.01f * (int16_t)(device->memory.data[261]);
-			device->model->vel[1] = 0.01f * (int16_t)(device->memory.data[262]);
-			device->model->vel[2] = 0.01f * (int16_t)(device->memory.data[263]);
-			device->memory.data[260] = 0;
-			device->memory.data[261] = 0;
-			device->memory.data[262] = 0;
-			device->memory.data[263] = 0;
-		}
+	if (moveRequest != 0)
+	{
+		// scale the numbers down because they are given as integers
+		device->model->vel[0] = 0.01f * (int16_t)(mem[345]);
+		device->model->vel[1] = 0.01f * (int16_t)(mem[346]);
+		device->model->vel[2] = 0.01f * (int16_t)(mem[347]);
+		mem[344] = 0;
+		mem[345] = 0;
+		mem[346] = 0;
+		mem[347] = 0;
 	}
 }
 
 // interrupts the CPU and writes the input at a fixed location
 void Device_GiveInput(Device *device, char input)
 {
-	device->memory.data[128] = input;
-	*device->irq |= 1 << 3;
+	device->memory.data[360] = input;
+	*device->irq |= 1 << 1;
 }

@@ -15,7 +15,6 @@ typedef struct
 	World *world;
 	Model *model;
 	uint16_t *irq;
-	int ticks;
 	int timerTicks;
 } Device;
 

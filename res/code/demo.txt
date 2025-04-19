@@ -1,0 +1,37 @@
+# CONTROLS:
+# Move: WASD/Space/LShift		Look: Mouse
+# Move Object: IJKLUO			Cycle Objects: Z/X
+# Create Object: V				Stop Object: CTRL
+# Toggle Gravity: G				Edit Text: ALT (toggle)
+# Run Program: Enter			Quit: ESC
+
+# This is a program that runs inside the game. Eventually you'll
+# be able to control robots that move, collect, and build things.
+# For now, all this virtual program does is move a ball around.
+# Turn on gravity with G and then press Enter to run the program!
+
+import stdlib;
+
+void main()(int x)
+{
+	x = 1;
+
+	while (true)
+	{
+		PrintStr("Moving!");
+		MoveTheBall(15);
+		x = x + 1;
+	}
+}
+
+# This function moves the ball and tries to break blocks.
+void MoveTheBall(int speed)()
+{
+	ChangeVelocity(-speed, 6 * speed, 0);
+	Sleep(200);
+	ChangeVelocity(-speed, speed, 0);
+	Sleep(1000);
+	ChangeVelocity(0, 0, 0);
+	BreakBlock();
+	Sleep(2000);
+}

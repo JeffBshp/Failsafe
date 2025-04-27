@@ -231,6 +231,6 @@ void Region_Read(Region *region, char *path)
 		free(buffer);
 	}
 
-	printf("Loaded region (%d, %d, %d) (success = %d)\n", region->baseCoords[0], region->baseCoords[1], region->baseCoords[2], success);
+	//printf("Loaded region (%d, %d, %d) (success = %d)\n", region->baseCoords[0], region->baseCoords[1], region->baseCoords[2], success);
 	region->loaded = success;
 }

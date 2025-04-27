@@ -18,7 +18,7 @@ void Sleep
 	}
 
 	# set timeout for current task
-	address = 514;
+	address = 2050;
 	address = @address + 6;
 	@address = timeHigh;
 	address = address + 1;
@@ -114,7 +114,7 @@ bool Compare32u
 # This function always restarts the timer before returning.
 uint SwitchTask
 	(uint stackPtr)
-	(uint timeHigh, uint timeLow, uint minHigh, uint minLow, uint currentTask, uint listPtr, uint end, uint type, uint temp, bool passed)
+	(uint timeHigh, uint timeLow, uint minHigh, uint minLow, uint currentTask, uint listPtr, uint end, uint tempA, uint tempB, bool passed, string str)
 {
 	# get the current system time in milliseconds, which updates every frame
 	timeHigh = 320;
@@ -128,63 +128,76 @@ uint SwitchTask
 
 	# Notes on hardcoded addresses:
 	# (I need to implement things like constants and structs)
-	# 512: number of list entries
-	# 513: address of the module for the currently running task
-	# 514: address of pcb for current task
+	# 2048: number of list entries
+	# 2049: address of the module for the currently running task
+	# 2050: address of pcb for current task
+	# 2051: total system memory (in words)
+	# 2052: number of registered modules
 	# ...
-	# 520: start of allocation list
+	# 2060: start of allocation list
 
-	listPtr = 512;
+	listPtr = 2048;
 	end = @listPtr; # number of entries
-	listPtr = listPtr + 1; # 513
+	listPtr = listPtr + 1; # 2049
 	currentTask = @listPtr; # module address of the current task
 
-	listPtr = 520;
-	end = listPtr + (end * 12); # 12 words in each entry
+	listPtr = 2060;
+	end = listPtr + (end * 20); # 20 words in each entry
 
 	# The first runnable task in the list AFTER the current one will be selected.
 	# If no current task, passed=true and the first one in the list will be selected.
-	passed = currentTask == 0;
+	passed = false;
+	if (currentTask == 0) { passed = true; }
 
 	while (listPtr < end)
 	{
-		type = listPtr + 2;
-		type = @type;
-
-		# type 0 means it's a task, not a library module
-		if (type == 0)
+		if (passed)
 		{
-			# get the task's scheduled time from
-			type = listPtr + 6; # time high bits (reusing a variable)
-			type = @type;
-			temp = listPtr + 7; # time low bits
-			temp = @temp;
+			tempA = listPtr + 2;
+			tempA = @tempA; # type == 0 if it's a task
 
-			if (passed && Compare32u(timeHigh, timeLow, type, temp))
+			if (tempA == 0)
 			{
-				break; # found a runnable task
-			}
+				tempA = listPtr + 8;
+				tempA = @tempA; # nonzero if waiting for mutex
+				tempB = listPtr + 10;
+				tempB = @tempB;	# task status == 1 if runnable
 
-			if (Compare32u(minHigh, minLow, type, temp))
-			{
-				# not runnable, but it's the soonest one so far
-				minHigh = type;
-				minLow = temp;
-			}
+				if ((tempA == 0) && (tempB == 1))
+				{
+					# get the task's scheduled time from
+					tempB = listPtr + 6; # time high bits
+					tempB = @tempB;
+					tempA = listPtr + 7; # time low bits
+					tempA = @tempA;
 
-			if (@listPtr == currentTask)
-			{
-				# found the task that was interrupted; save its stack pointer
-				passed = true;
-				temp = listPtr + 4;
-				@temp = stackPtr;
+					if (Compare32u(timeHigh, timeLow, tempB, tempA))
+					{
+						break; # found a runnable task
+					}
+
+					if (Compare32u(minHigh, minLow, tempB, tempA))
+					{
+						# not runnable, but it's the soonest one so far
+						minHigh = tempB;
+						minLow = tempA;
+					}
+				}
 			}
 		}
 
-		listPtr = listPtr + 12;
+		if (@listPtr == currentTask)
+		{
+			# found the task that was interrupted; save its stack pointer
+			passed = true;
+			tempA = listPtr + 4;
+			@tempA = stackPtr;
+		}
+
+		listPtr = listPtr + 20;
 	}
 
-	temp = 513;
+	tempA = 2049;
 
 	# if no runnable task was found
 	if (listPtr >= end)
@@ -192,10 +205,10 @@ uint SwitchTask
 		# set current task to null
 		# ISR will halt after this function returns
 		listPtr = 0;
-		@temp = 0;
-		temp = temp + 1; # 514
-		@temp = 0;
-		temp = 322;
+		@tempA = 0;
+		tempA = 2050;
+		@tempA = 0;
+		tempA = 322;
 
 		if (minLow == 0)
 		{
@@ -205,38 +218,586 @@ uint SwitchTask
 		# set timer for next task switch
 		if (timeHigh > minHigh)
 		{
-			@temp = 1;
+			@tempA = 1;
 		}
 		else if (timeHigh == minHigh)
 		{
 			if (timeLow >= minLow)
 			{
-				@temp = 1;
+				@tempA = 1;
 			}
 			else
 			{
-				@temp = minLow - timeLow;
+				@tempA = minLow - timeLow;
 			}
 		}
 		else
 		{
 			# I think the delay here should be: 65535 - minLow + timeLow
 			# but it's not working; instead use a short fixed delay.
-			@temp = 100;
-			PrintInt(0, @temp);
+			@tempA = 100;
 		}
 	}
 	else
 	{
 		# set the current task
-		@temp = @listPtr;
-		temp = temp + 1; # 514
-		@temp = listPtr;
+		@tempA = @listPtr;
+		tempA = 2050;
+		@tempA = listPtr;
 
 		# set timer for next task switch
-		temp = 322;
-		@temp = 100;
+		tempA = 322;
+		@tempA = 100;
 	}
 
 	return listPtr;
+}
+
+void WaitMutex
+	(uint mutexAddress)
+	(uint taskAddress, uint pcbAddress, uint temp)
+{
+	taskAddress = 2049;				# fixed address where the address of the currently running task is stored
+	taskAddress = @taskAddress;		# dereference to get the address of the task
+	pcbAddress = 2050;				# fixed address contains the address of the current process control block
+	pcbAddress = @pcbAddress + 8;	# add an offset to get the waiting-for-mutex member of the struct
+	temp = taskAddress;
+
+	while (temp != 0)
+	{
+		# maybe later I'll come up with a less sketchy way to do this
+		setreg(2, mutexAddress);	# put mutex address in operand register A
+		setreg(3, taskAddress);		# put task address in operand register B
+		instr(62723);				# CAS OA OB (compare-and-swap: put this task's address in the mutex if another task doesn't already own it)
+		temp = getreg(3);			# get the swap value, which should be zero if it swapped successfully
+
+		if (temp != 0)
+		{
+			@pcbAddress = mutexAddress;	# tell the scheduler that this task is waiting for this mutex
+			instr(65408); # halt until scheduler resumes this task, then loop and try again
+		}
+	}
+}
+
+void ReleaseMutex
+	(uint mutexAddress)
+	(uint listPtr, uint end)
+{
+	instr(65152); # disable interrupts
+
+	listPtr = 2048;
+	end = @listPtr; # number of entries
+	listPtr = 2068; # mutex member of first entry in the list
+	end = listPtr + (end * 20); # 20 words in each entry
+
+	# set waiting tasks as runnable
+	while (listPtr < end)
+	{
+		if (@listPtr == mutexAddress)
+		{
+			@listPtr = 0;
+		}
+
+		listPtr = listPtr + 20;
+	}
+
+	# set the mutex as free
+	@mutexAddress = 0;
+
+	instr(65153); # enable interrupts
+}
+
+uint Allocate
+	(uint size)
+	(uint address, uint listPtr, uint next, uint end, uint a, uint b, uint c)
+{
+	instr(65152); # disable interrupts
+
+	listPtr = 2048;
+	end = @listPtr; # number of entries
+	listPtr = 2060; # first entry in the list
+	end = listPtr + (end * 20); # 20 words in each entry
+	next = listPtr + 20;
+	address = 0;
+
+	while (next < end)
+	{
+		b = listPtr + 1;	# points to the size of the current entry
+		a = @listPtr + @b;	# first address after the current entry
+		b = @next - a;		# size of free space before the next entry
+
+		if ((@next > a) && (b >= size))
+		{
+			address = a;
+			break;
+		}
+
+		listPtr = next;
+		next = next + 20;
+	}
+
+	if (address == 0)
+	{
+		c = 2051;			# points to the total memory size
+		b = listPtr + 1;
+		a = @listPtr + @b;
+		b = @c - a;
+
+		if ((@c > a) && (b >= size))
+		{
+			address = a;
+		}
+	}
+
+	if (address != 0)
+	{
+		if (next < end)
+		{
+			c = end;
+			b = c + 19;
+			a = b - 20;
+
+			# shift next and all subsequent entries forward
+			while (c > next)
+			{
+				while (b >= c)
+				{
+					@b = @a;
+					a = a - 1;
+					b = b - 1;
+				}
+
+				c = c - 20;
+			}
+		}
+
+		# insert new record at next
+		@next = address;
+		next = next + 1;
+		@next = size;
+		next = next + 1;
+		@next = 2;
+		next = next + 1;
+		@next = 0;
+		next = next + 1;
+		c = 2049;
+		@next = @c;
+
+		# increment list length
+		a = 2048;
+		@a = @a + 1;
+	}
+
+	instr(65153); # enable interrupts
+
+	return address;
+}
+
+bool Free
+	(uint address)
+	(uint listPtr, uint next, uint end, bool found, uint a, uint b)
+{
+	instr(65152); # disable interrupts
+
+	listPtr = 2048;
+	end = @listPtr; # number of entries
+	listPtr = 2060; # first entry in the list
+	end = listPtr + (end * 20); # 20 words in each entry
+	next = listPtr + 20;
+	found = false;
+
+	while (listPtr < end)
+	{
+		if (@listPtr == address)
+		{
+			# decrement list length
+			a = 2048;
+			@a = @a - 1;
+			found = true;
+		}
+
+		# shift subsequent entries left
+		if (found)
+		{
+			if (next < end)
+			{
+				a = listPtr;
+				b = next;
+
+				while (a < next)
+				{
+					@a = @b;
+					a = a + 1;
+					b = b + 1;
+				}
+			}
+		}
+
+		listPtr = next;
+		next = next + 20;
+	}
+
+	instr(65153); # enable interrupts
+
+	return found;
+}
+
+bool FreeDeadTask
+	()
+	(uint listPtr, uint next, uint end, bool found, uint a, uint b)
+{
+	instr(65152); # disable interrupts
+
+	listPtr = 2048;
+	end = @listPtr; # number of entries
+	listPtr = 2060; # first entry in the list
+	end = listPtr + (end * 20); # 20 words in each entry
+	next = listPtr + 20;
+	found = false;
+
+	while (listPtr < end)
+	{
+		a = listPtr + 10;
+
+		if ((@a == 2) && !found)
+		{
+			# decrement list length
+			a = 2048;
+			@a = @a - 1;
+			found = true;
+
+			# clear the pointer in the registry
+			a = listPtr + 9;
+			a = @a;
+			@a = 0;
+
+			# TODO: free heap allocations and any libraries that are now unused
+		}
+
+		# shift subsequent entries left
+		if (found && (next < end))
+		{
+			a = listPtr;
+			b = next;
+
+			while (a < next)
+			{
+				@a = @b;
+				a = a + 1;
+				b = b + 1;
+			}
+		}
+
+		listPtr = next;
+		next = next + 20;
+	}
+
+	instr(65153); # enable interrupts
+
+	return found;
+}
+
+uint AllocateModule
+	(uint type, uint codeSize, uint stackSize, int mainOffset, uint numDependents)
+	(uint newPcb, uint size, uint address, uint listPtr, uint next, uint end, uint a, uint b, uint c)
+{
+	instr(65152); # disable interrupts
+
+	listPtr = 2048;
+	end = @listPtr; # number of entries
+	listPtr = 2060; # first entry in the list
+	end = listPtr + (end * 20); # 20 words in each entry
+	next = listPtr + 20;
+
+	size = codeSize + stackSize;
+	newPcb = 0;
+	address = 0;
+
+	while (next < end)
+	{
+		b = listPtr + 1;	# points to the size of the current entry
+		a = @listPtr + @b;	# first address after the current entry
+		b = @next - a;		# size of free space before the next entry
+
+		if ((@next > a) && (b >= size))
+		{
+			address = a;
+			break;
+		}
+
+		listPtr = next;
+		next = next + 20;
+	}
+
+	if (address == 0)
+	{
+		c = 2051;			# points to the total memory size
+		b = listPtr + 1;
+		a = @listPtr + @b;
+		b = @c - a;
+
+		if ((@c > a) && (b >= size))
+		{
+			address = a;
+		}
+	}
+
+	if (address != 0)
+	{
+		if (next < end)
+		{
+			c = end;
+			b = c + 19;
+			a = b - 20;
+
+			# shift next and all subsequent entries forward
+			while (c > next)
+			{
+				while (b >= c)
+				{
+					@b = @a;
+					a = a - 1;
+					b = b - 1;
+				}
+
+				c = c - 20;
+			}
+		}
+
+		# insert new record at next
+		newPcb = next;
+		@next = address;
+		next = next + 1;
+		@next = size;
+		next = next + 1;
+		@next = type;
+		next = next + 1;
+		@next = numDependents;
+		next = next + 1;
+		if (type == 2)
+		{
+			c = 2049;
+			@next = @c;
+		}
+		else
+		{
+			@next = address + codeSize + 7;
+		}
+		c = next + 7;
+		while (next < c)
+		{
+			next = next + 1;
+			@next = 0;
+		}
+
+		# initialize the stack if it's a task
+		if (type == 0)
+		{
+			c = address + codeSize + 3;
+			@c = 280; # RA points to the termination procedure at a fixed address
+			c = c + 1;
+			@c = address; # MP points to the task's own module address
+			c = c + 1;
+			@c = address + codeSize; # FP starts at the base of the stack
+			c = c + 1;
+			@c = address + mainOffset; # IP starts at the main function
+		}
+
+		# increment list length
+		a = 2048;
+		@a = @a + 1;
+	}
+
+	instr(65153); # enable interrupts
+
+	return newPcb;
+}
+
+# Fills in the dependency addresses at the start of a module's code section, pointed to by ptrList.
+# The list of dependency names, each being prefixed by its length, is pointed to by stringPtr.
+# This also loads each dependency if not loaded already.
+void LoadDependencies
+	(int numStrings, uint stringPtr, uint ptrList)
+	(uint pcb, int end, uint length)
+{
+	end = ptrList + numStrings;
+
+	while (ptrList < end)
+	{
+		length = @stringPtr;
+		stringPtr = stringPtr + 1;
+		pcb = LoadModule(stringPtr, true);
+		stringPtr = stringPtr + length;
+
+		@ptrList = @pcb;
+		ptrList = ptrList + 1;
+	}
+}
+
+bool CompareStrings
+	(string a, string b)
+	(uint aPtr, uint bPtr, uint aChars, uint bChars)
+{
+	aPtr = a;
+	bPtr = b;
+	aChars = 1;
+
+	while (aChars != 0)
+	{
+		aChars = @aPtr;
+		bChars = @bPtr;
+
+		if (aChars != bChars) { return false; }
+		aChars = aChars & 65280;
+
+		aPtr = aPtr + 1;
+		bPtr = bPtr + 1;
+	}
+
+	return true;
+}
+
+void RegisterModule
+	(string name)
+	(uint destPtr, uint n, uint end, uint strPtr, uint chars)
+{
+	strPtr = name;
+	destPtr = 2052;
+	n = @destPtr;
+	@destPtr = n + 1;
+	destPtr = 1024 + (n * 32);
+	end = destPtr + 32;
+
+	@destPtr = 0;
+	destPtr = destPtr + 1;
+
+	while (destPtr < end)
+	{
+		chars = @strPtr;
+		@destPtr = chars;
+		destPtr = destPtr + 1;
+		chars = chars & 65280;
+		if (chars == 0) { break; }
+		strPtr = strPtr + 1;
+	}
+
+	while (destPtr < end)
+	{
+		@destPtr = 0;
+		destPtr = destPtr + 1;
+	}
+}
+
+# finds the address of the registry entry with the given name
+uint FindModuleByName
+	(string name)
+	(uint n, uint listPtr, uint end, string otherStr, uint matchingEntry)
+{
+	n = 2052;
+	n = @n;
+	listPtr = 1024;
+	end = listPtr + (n * 32);
+	matchingEntry = 0;
+
+	while (listPtr < end)
+	{
+		otherStr = listPtr + 1;
+
+		if (CompareStrings(name, otherStr))
+		{
+			matchingEntry = listPtr;
+			break;
+		}
+
+		listPtr = listPtr + 32;
+	}
+
+	return matchingEntry;
+}
+
+# If not already loaded, this loads the module with the given name and creates a new pcb entry for it.
+# Returns the address of the pcb entry.
+uint LoadModule
+	(string moduleName, bool isDependency)
+	(uint registryEntry, uint address, uint pcb, uint type, int numDependencies, uint x, uint y, uint end, uint codeStart, uint codeSize, int mainOffset)
+{
+	registryEntry = FindModuleByName(moduleName);
+	if (registryEntry == 0) { return 0; }
+	pcb = @registryEntry;
+	if (pcb != 0) { return pcb; }
+
+	address = Allocate(1024);
+	if (address == 0) { return 0; }
+
+	x = 387;
+	@x = moduleName;
+	x = 388;
+	@x = address;
+	x = 389;
+	@x = 1024;
+	x = 386;
+	@x = 2;
+	x = 384;
+
+	Sleep(1000);
+	while(@x != 1)
+	{
+		Sleep(100);
+	}
+
+	x = 385;
+	x = @x;
+	if ((x != 0) && (x != 3)) { return 0; }
+
+	x = 396;
+	x = x + 8; # file size (high bits)
+	y = x + 1; # file size (low bits)
+	PrintStr("File Size:");
+	PrintInt(@x, @y);
+	Sleep(100);
+
+	x = address + 1; # number of references
+	numDependencies = @x;
+	x = address + 4; # code start (in bytes)
+	codeStart = @x / 2; # convert to words
+	x = x + 1;
+	codeSize = @x; # size in words, including addresses of references at the start
+	x = x + 1;
+	mainOffset = @x;
+	type = 0;
+	if (mainOffset < 0) { type = 1; }
+
+	x = 0;
+	if (isDependency) { x = 1; }
+	pcb = AllocateModule(type, codeSize, 256, mainOffset, x);
+	if (pcb == 0) { return 0; }
+	@registryEntry = pcb;
+	x = pcb + 9;
+	@x = registryEntry;
+
+	x = address + (@address / 2); # x points to the first string in the list of dependencies
+	y = address + codeStart; # y points to the beginning of the code section
+	LoadDependencies(numDependencies, x, y); # fill in referenced module addresses at beginning of code
+
+	x = @pcb;
+	end = y + codeSize;
+
+	# copy the program
+	while (y < end)
+	{
+		@x = @y;
+		x = x + 1;
+		y = y + 1;
+	}
+
+	if (type == 0)
+	{
+		# mark the task as runnable
+		x = pcb + 10;
+		@x = 1;
+	}
+
+	Free(address);
+
+	return pcb;
 }

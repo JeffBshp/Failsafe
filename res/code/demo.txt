@@ -14,14 +14,21 @@ import stdlib;
 
 void main()(int x)
 {
-	x = 1;
+	# This demonstrates that another program called "test"
+	# can run alongside this one.
+	PrintStr("Loading test module...");
+	Sleep(100);
+	LoadModule("test", false);
 
-	while (true)
+	x = 0;
+
+	while (x < 10)
 	{
-		PrintStr("Moving!");
 		MoveTheBall(15);
 		x = x + 1;
 	}
+
+	PrintStr("Main program is exiting...");
 }
 
 # This function moves the ball and tries to break blocks.

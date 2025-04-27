@@ -204,7 +204,7 @@ static Parameter* ReadParameterList(Lexer* lex, int* n)
 
 static Expression* MakeExpression(ExpressionType type)
 {
-	Expression* e = malloc(sizeof(Expression));
+	Expression* e = calloc(1, sizeof(Expression));
 	e->type = type;
 	return e;
 }
@@ -236,7 +236,7 @@ static Expression* ReadArgumentList(Lexer* lex, int* n)
 		SkipSymbol(lex, SYM_RPAREN);
 	}
 
-	Expression* list = malloc((*n) * sizeof(Expression));
+	Expression* list = calloc(*n, sizeof(Expression));
 
 	for (int i = 0; i < *n; i++)
 	{
@@ -302,6 +302,7 @@ static Expression* ReadExpressionAtom(Lexer* lex)
 		{
 		case SYM_LPAREN:
 			e = ReadExpression(lex);
+			if (e->type == EX_OPERATION) e->content.asOperation.noReorder = true;
 			SkipSymbol(lex, SYM_RPAREN);
 			break;
 		case SYM_AT:
@@ -387,12 +388,13 @@ bool TryReadOperator(Lexer* lex, OperationType* op)
 
 static Expression* MakeBinaryExpression(OperationType op, Expression* left, Expression* right)
 {
-	Expression* e = malloc(sizeof(Expression));
+	Expression* e = calloc(1, sizeof(Expression));
 	e->type = EX_OPERATION;
 
 	EX_Operation* o = &(e->content.asOperation);
 	o->type = op;
 	o->isBinary = true;
+	o->noReorder = false;
 	o->a = left;
 	o->b = right;
 
@@ -408,7 +410,8 @@ static Expression* TryReadBinaryExpression(Lexer* lex, Expression* left)
 	Expression* next = ReadExpressionAtom(lex);
 	Expression* binary;
 
-	if (left->type == EX_OPERATION && left->content.asOperation.isBinary) // TODO: && compare operation order
+	// TODO: this doesn't actually check operator priority, so long expressions will always get evaluated right to left
+	if (left->type == EX_OPERATION && left->content.asOperation.isBinary && (left->content.asOperation.noReorder = false))
 	{
 		// change order of operations because the current op takes priority over the previous (left) op
 		EX_Operation* leftOp = &(left->content.asOperation);
@@ -680,7 +683,8 @@ SyntaxTree* Parser_ParseFile(char* filePath)
 
 	ast->functions = malloc(ast->numFunctions * sizeof(Function));
 	memcpy(ast->functions, functionBuffer, ast->numFunctions * sizeof(Function));
-	if (lex->status != LEX_ACTIVE && lex->status != LEX_ENDOFFILE) printf("Parse Error: %d\n", lex->status);
+	ast->ok = lex->status == LEX_ACTIVE || lex->status == LEX_ENDOFFILE;
+	if (!ast->ok) printf("Parse Error: %d\n", lex->status);
 	Lexer_Destroy(lex);
 
 	return ast;

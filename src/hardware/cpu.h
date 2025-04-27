@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "device.h"
+#include "disk.h"
 #include "memory.h"
 
 // TODO: clean up the instruction set architecture
@@ -24,7 +25,7 @@ typedef enum
 	OPX_CALL,
 	OPX_RESERVED1,
 	OPX_RESERVED2,
-	OPX_RESERVED3,
+	OPX_CAS, // compare-and-swap: if address at regB contains zero, swap it with the value in regC
 	OPX_BINOP, // additional binary operations on B and C
 	OPX_MORE, // even more opcodes that only take immed7 as an operand
 
@@ -69,7 +70,7 @@ typedef enum
 	FPMATH_DIV,
 } OpCode;
 
-enum
+typedef enum
 {
 	// register numbers
 	REG_ZERO = 0,			// RZ: always zero
@@ -80,7 +81,27 @@ enum
 	REG_MODULE_PTR = 5,		// MP: base address of the current module; needed to turn various offsets into absolute addresses
 	REG_FRAME_PTR = 6,		// FP: args and locals are accessed relative to the frame pointer, which is stable throughout a function
 	REG_STACK_PTR = 7,		// SP: the stack is used for passing args and evaluating nested expressions
-};
+} RegisterId;
+
+typedef enum
+{
+	IRQ_TASK_TIMER = 1 << 0,
+	IRQ_CHAR_INPUT = 1 << 1,
+	IRQ_2 = 1 << 2,
+	IRQ_3 = 1 << 3,
+	IRQ_4 = 1 << 4,
+	IRQ_5 = 1 << 5,
+	IRQ_6 = 1 << 6,
+	IRQ_7 = 1 << 7,
+	IRQ_8 = 1 << 8,
+	IRQ_9 = 1 << 9,
+	IRQ_10 = 1 << 10,
+	IRQ_11 = 1 << 11,
+	IRQ_12 = 1 << 12,
+	IRQ_13 = 1 << 13,
+	IRQ_14 = 1 << 14,
+	IRQ_15 = 1 << 15,
+} IrqId;
 
 typedef union
 {
@@ -116,12 +137,13 @@ typedef struct
 	uint16_t registers[8];
 	Memory memory;
 	Device device;
+	Disk disk;
 	uint64_t cycles;
 	bool interruptEnable;
 	bool halt;
 	bool poweredOn;
 } Cpu;
 
-Cpu* Cpu_New(Device device, Memory memory);
+Cpu* Cpu_New(Device device, Disk disk, Memory memory);
 bool Cpu_Boot(Cpu *cpu);
 void Cpu_Run(Cpu* cpu, int ticks);

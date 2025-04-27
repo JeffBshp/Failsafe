@@ -10,15 +10,17 @@
 
 // Originally based on the RiSC-16 Instruction Set Architecture.
 
-Cpu* Cpu_New(Device device, Memory memory)
+Cpu* Cpu_New(Device device, Disk disk, Memory memory)
 {
 	Cpu* cpu = calloc(1, sizeof(Cpu));
 	cpu->cycles = 0;
 	cpu->halt = true;
 	cpu->device = device;
+	cpu->disk = disk;
 	cpu->memory = memory;
 	cpu->device.memory = memory;
 	cpu->device.irq = &cpu->irq;
+	cpu->disk.memory = memory;
 	cpu->poweredOn = false;
 	return cpu;
 }
@@ -27,9 +29,10 @@ bool Cpu_Boot(Cpu *cpu)
 {
 	memset(cpu->registers, 0, 16);
 	memset(cpu->memory.data, 0, cpu->memory.n * sizeof(uint16_t));
-	uint16_t startAddress = Kernel_Load(cpu->memory.data);
+	uint16_t startAddress = Kernel_Load(cpu->memory);
 	if (startAddress == 0xffff) return false;
 
+	Disk_Reset(&cpu->disk);
 	cpu->device.timerTicks = -1;
 	cpu->instructionPointer = startAddress;
 	cpu->irq = 0;
@@ -211,6 +214,13 @@ static void ExecuteNextInstruction(Cpu *cpu)
 			r[REG_RET_ADDR] = next; // set RA
 			next = r[instr.regB]; // jump to function
 			break;
+		case OPX_CAS:
+			if (mem[r[instr.regB]] == 0)
+			{
+				mem[r[instr.regB]] = r[instr.regC];
+				r[instr.regC] = 0;
+			}
+			break;
 		case OPX_BINOP:
 			BinaryOp(r, instr);
 			break;
@@ -266,7 +276,7 @@ void Cpu_Run(Cpu* cpu, int ticks)
 {
 	if (!cpu->poweredOn) return;
 
-	uint64_t cycles = ticks * 50ull;
+	uint64_t cycles = ticks * 100ull;
 
 	if (cpu->interruptEnable && cpu->irq != 0)
 	{
@@ -307,4 +317,5 @@ void Cpu_Run(Cpu* cpu, int ticks)
 	}
 
 	Device_Update(&cpu->device, ticks);
+	Disk_Update(&cpu->disk, ticks);
 }

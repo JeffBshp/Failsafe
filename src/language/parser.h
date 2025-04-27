@@ -132,6 +132,7 @@ typedef struct
 {
 	OperationType type;
 	bool isBinary;
+	bool noReorder;
 	Expression* a;
 	Expression* b;
 } EX_Operation;
@@ -187,6 +188,7 @@ typedef struct
 	char **imports;
 	int numFunctions;
 	int numImports;
+	bool ok;
 } SyntaxTree;
 
 char* DeepCopyStr(char* str);

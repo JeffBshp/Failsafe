@@ -151,7 +151,7 @@ static bool LoadFullWord(CompileContext* c, uword regIndex, uword value)
 
 static inline bool BothAreIntegers(DataType a, DataType b)
 {
-	return (a == DAT_INT || a == DAT_UINT) && (b == DAT_INT || b == DAT_UINT);
+	return (a == DAT_INT || a == DAT_UINT || a == DAT_STRING) && (b == DAT_INT || b == DAT_UINT || b == DAT_STRING);
 }
 
 #pragma endregion
@@ -893,7 +893,7 @@ static bool CompileReturn(CompileContext* c, ST_Return r)
 	else if (CompileExpression(c, r, &type))
 	{
 		// return value is in REG_RESULT
-		if (type == f->rtype)
+		if (type == f->rtype || BothAreIntegers(type, f->rtype))
 			Instr2R(c, INSTR_EXT, OPX_MORE, OPXX_RET, 0);
 		else
 			c->status = COMPILE_INVALIDRETTYPE;
@@ -1099,6 +1099,12 @@ Program *Compiler_BuildFile(char *filePath)
 	c->numInstructions = c->ast->numImports; // skip this many instruction slots at the start
 	int n;
 
+	if (!c->ast->ok)
+	{
+		c->status = COMPILE_PARSEERROR;
+		goto finish;
+	}
+
 	// add function signatures to the context so they can be looked up when compiling function calls
 	for (n = 0; n < c->ast->numFunctions; n++)
 	{
@@ -1123,6 +1129,12 @@ Program *Compiler_BuildFile(char *filePath)
 		Program *importedModule = ReadCompiledModule(pathBuffer);
 		if (importedModule == NULL)
 			importedModule = Compiler_BuildFile(pathBuffer);
+
+		if (importedModule == NULL)
+		{
+			c->status = COMPILE_MISSINGLIB;
+			goto finish;
+		}
 
 		for (int j = 0; j < importedModule->numFunctions; j++)
 		{
@@ -1165,46 +1177,63 @@ void Compiler_Destroy(Program* p)
 	}
 }
 
+// Writes a string while packing chars into little-endian 16-bit unsigned integers.
+// Also writes the length before the string, which is the number of 16-bit words, including 1 or 2 null terminating bytes.
+// Returns the total number of words written, which is length + 1.
 static int WritePackedString(char *s, FILE *file)
 {
-	int i = 0;
-	int n = 0;
+	// remember start position and skip a space for the length
+	long startPos = ftell(file);
+	fseek(file, 2, SEEK_CUR);
+
+	int length = 0;
+	int numChars = 0;
 	uint16_t value;
 
 	do
 	{
-		value = s[n++];
+		value = s[numChars++];
 
 		if (value != 0)
 		{
-			value |= s[n++] << 8;
+			value |= s[numChars++] << 8;
 		}
 
 		fwrite(&value, sizeof(uint16_t), 1, file);
-		i++;
+		length++;
 
 	} while ((value & 0xff00) != 0);
 
-	return i;
+	// fill in length at start of string, then seek to end again
+	long temp = ftell(file);
+	fseek(file, startPos, SEEK_SET);
+	fwrite(&length, sizeof(uint16_t), 1, file);
+	fseek(file, temp, SEEK_SET);
+
+	return length + 1;
 }
 
+// Reads a string that was previously written by WritePackedString.
+// Returns the same length that was written.
 static int ReadPackedString(char *s, FILE *file)
 {
-	int i = 0;
-	int n = 0;
-	uint16_t value;
+	int numChars = 0;
+	uint16_t length;
 
-	do
+	fread(&length, sizeof(uint16_t), 1, file);
+
+	for (int i = 0; i < length; i++)
 	{
+		uint16_t value;
 		fread(&value, sizeof(uint16_t), 1, file);
-		i++;
+		s[numChars++] = (char)(value & 0x00ff);
+		s[numChars++] = (char)(value >> 8);
+	}
 
-		s[n++] = (char)(value & 0x00ff);
-		s[n++] = (char)(value >> 8);
+	if (numChars == 0) numChars = 1;
+	s[numChars - 1] = '\0'; // should be null already, but this guarantees it
 
-	} while (s[n - 1] != '\0');
-
-	return i;
+	return length;
 }
 
 static inline void WriteWord(uint16_t value, FILE *file)
@@ -1221,12 +1250,10 @@ static inline uint16_t ReadWord(FILE *file)
 
 static void WriteCompiledModule(char *sourcePath, Program *module)
 {
-	int n = strlen(sourcePath) + 1;
-	char *modulePath = malloc(n * sizeof(char));
+	int n = strlen(sourcePath) - 4;
+	char *modulePath = malloc((n + 1) * sizeof(char));
 	strncpy(modulePath, sourcePath, n);
-	modulePath[n - 4] = 'm';
-	modulePath[n - 3] = 'o';
-	modulePath[n - 2] = 'd';
+	modulePath[n] = '\0';
 	FILE *file = fopen(modulePath, "wb");
 
 	if (file != NULL)
@@ -1275,12 +1302,10 @@ static Program *ReadCompiledModule(char *sourcePath)
 	// TODO: rebuild only if source file changed
 	return NULL;
 
-	int n = strlen(sourcePath) + 1;
-	char *modulePath = malloc(n * sizeof(char));
+	int n = strlen(sourcePath) - 4;
+	char *modulePath = malloc((n + 1) * sizeof(char));
 	strncpy(modulePath, sourcePath, n);
-	modulePath[n - 4] = 'm';
-	modulePath[n - 3] = 'o';
-	modulePath[n - 2] = 'd';
+	modulePath[n] = '\0';
 	FILE *file = fopen(modulePath, "rb");
 	Program *module = NULL;
 

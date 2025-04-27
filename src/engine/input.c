@@ -42,6 +42,7 @@ static void RunProgram(GameState *gs)
 	if (cpu->poweredOn)
 	{
 		printf("Shutting down VM...\n");
+		Memory_WriteFile(cpu->memory, "res/code/off.mem");
 		cpu->poweredOn = false;
 	}
 	else
@@ -52,7 +53,7 @@ static void RunProgram(GameState *gs)
 		printf("Booting virtual machine...\n");
 		if (Cpu_Boot(cpu))
 		{
-			Memory_WriteFile(cpu->memory, "res/code/out.mem");
+			Memory_WriteFile(cpu->memory, "res/code/boot.mem");
 		}
 	}
 }

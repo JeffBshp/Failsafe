@@ -32,12 +32,27 @@ static void NextChar(Lexer* lex)
 		}
 		else
 		{
-			lex->n++;
 			lex->c = fgetc(lex->file);
 			lex->buffer[lex->i] = (char)lex->c;
+			lex->n++;
 
-			if (lex->c == EOF)
+			switch (lex->c)
+			{
+			case EOF:
 				lex->status = LEX_ENDOFFILE;
+				lex->col++;
+				break;
+			case '\t':
+				lex->col += 4;
+				break;
+			case '\n':
+				lex->line++;
+				lex->col = 0;
+				break;
+			default:
+				lex->col++;
+				break;
+			}
 		}
 	}
 }
@@ -250,6 +265,8 @@ Lexer* Lexer_OpenFile(char* filePath)
 		// initialize struct
 		lex->i = -1;
 		lex->n = 0;
+		lex->line = 1;
+		lex->col = 0;
 		lex->token.type = TOK_NULL;
 		lex->token.value.asString = NULL;
 		lex->status = LEX_ACTIVE;

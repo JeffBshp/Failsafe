@@ -92,7 +92,7 @@ typedef enum
 
 enum
 {
-	CONST_BUFFERSIZE = 10000,
+	CONST_BUFFERSIZE = 20000,
 	CONST_SUBBUFSIZE = 100,
 	CONST_MAXPARAMS = 20,
 	CONST_MAXSTATEMENTS = 100,
@@ -122,6 +122,8 @@ typedef struct
 	int i;				// index of the current char (< n)
 	int n;				// number of chars in the buffer
 	int c;				// character at buffer[i]
+	int line;			// line number of the NEXT char, starting at 1
+	int col;			// column number of the NEXT char, starting at 0
 	Token token;		// most recent token
 	LexStatus status;
 	// Keep the current token instead of reading the next one.

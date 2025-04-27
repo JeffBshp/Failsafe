@@ -4,6 +4,7 @@
 #include "cglm/cglm.h"
 
 #include "device.h"
+#include "cpu.h"
 #include "../engine/shape.h"
 #include "../engine/world.h"
 
@@ -31,7 +32,7 @@ static void BreakBlock(Device *device)
 	}
 }
 
-static int UnpackString(uint16_t *str, char *buffer)
+int UnpackString(char *buffer, uint16_t *str)
 {
 	uint16_t pair;
 	int i = 0;
@@ -51,77 +52,71 @@ static int UnpackString(uint16_t *str, char *buffer)
 	return n;
 }
 
+// This performs several services for the CPU.
+// Later on they can be split into multiple IO devices.
 bool Device_Update(Device *device, int ticks)
 {
 	uint16_t *mem = device->memory.data;
 
 	// write the current time where the software can find it
-	mem[320] = ticks >> 16;
-	mem[321] = ticks & 0x0000ffff;
-
-	// software will put data in these locations when it wants the device to do something
-	uint16_t timerRequest = mem[322];
-	uint16_t printStrRequest = mem[328];
-	uint16_t printIntRequest = mem[329];
-	uint16_t breakBlockRequest = mem[336];
-	uint16_t moveRequest = mem[344];
+	mem[IO_TIME_HIGH] = ticks >> 16;
+	mem[IO_TIME_LOW] = ticks & 0x0000ffff;
 
 	if (device->timerTicks > 0)
 	{
 		if (ticks > device->timerTicks)
 		{
-			// clear the timer
+			// clear the timer and trigger an interrupt
 			device->timerTicks = -1;
-			mem[322] = 0;
-			// trigger an interrupt on irq line 0
-			*device->irq |= 1 << 0;
+			mem[IO_TIMER_SET] = 0;
+			*device->irq |= IRQ_TASK_TIMER;
 		}
 	}
-	else if (timerRequest != 0)
+	else if (mem[IO_TIMER_SET] != 0)
 	{
 		// set a timer
-		device->timerTicks = ticks + timerRequest;
+		device->timerTicks = ticks + mem[IO_TIMER_SET];
 	}
 
-	if (printStrRequest != 0)
+	if (mem[IO_PRINT_STR_ADDR] != 0)
 	{
 		char buffer[100];
-		uint16_t *str = mem + printStrRequest;
-		int len = UnpackString(str, buffer);
+		uint16_t *str = mem + mem[IO_PRINT_STR_ADDR];
+		int len = UnpackString(buffer, str);
 		printf("String: %s\n", buffer);
-		mem[328] = 0;
+		mem[IO_PRINT_STR_ADDR] = 0;
 	}
 
-	if (printIntRequest != 0)
+	if (mem[IO_PRINT_INT_CMD] != 0)
 	{
-		printf("Integer: %d\n", (mem[330] << 16) | mem[331]);
-		mem[329] = 0;
-		mem[330] = 0;
-		mem[331] = 0;
+		printf("Integer: %d\n", (mem[IO_PRINT_INT_HIGH] << 16) | mem[IO_PRINT_INT_LOW]);
+		mem[IO_PRINT_INT_CMD] = 0;
+		mem[IO_PRINT_INT_HIGH] = 0;
+		mem[IO_PRINT_INT_LOW] = 0;
 	}
 
-	if (breakBlockRequest != 0)
+	if (mem[IO_BREAK_CMD] != 0)
 	{
 		BreakBlock(device);
-		mem[336] = 0;
+		mem[IO_BREAK_CMD] = 0;
 	}
 
-	if (moveRequest != 0)
+	if (mem[IO_MOVE_CMD] != 0)
 	{
 		// scale the numbers down because they are given as integers
-		device->model->vel[0] = 0.01f * (int16_t)(mem[345]);
-		device->model->vel[1] = 0.01f * (int16_t)(mem[346]);
-		device->model->vel[2] = 0.01f * (int16_t)(mem[347]);
-		mem[344] = 0;
-		mem[345] = 0;
-		mem[346] = 0;
-		mem[347] = 0;
+		device->model->vel[0] = 0.01f * (int16_t)(mem[IO_MOVE_X]);
+		device->model->vel[1] = 0.01f * (int16_t)(mem[IO_MOVE_Y]);
+		device->model->vel[2] = 0.01f * (int16_t)(mem[IO_MOVE_Z]);
+		mem[IO_MOVE_CMD] = 0;
+		mem[IO_MOVE_X] = 0;
+		mem[IO_MOVE_Y] = 0;
+		mem[IO_MOVE_Z] = 0;
 	}
 }
 
 // interrupts the CPU and writes the input at a fixed location
 void Device_GiveInput(Device *device, char input)
 {
-	device->memory.data[360] = input;
-	*device->irq |= 1 << 1;
+	device->memory.data[IO_INPUT_CHAR] = input;
+	*device->irq |= IRQ_CHAR_INPUT;
 }

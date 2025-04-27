@@ -2,33 +2,27 @@ import stdlib;
 
 void main
 	()
-	(int i, int n)
+	()
 {
-	# set the initial timer for the task switcher
-	i = 322;
-	@i = 1000;
+	PrintStr("Kernel started.");
 
-	i = 0;
-	n = 0;
+	# These modules are known to exist on disk. Add them to the in-memory registry.
+	RegisterModule("demo");
+	RegisterModule("test");
+	RegisterModule("foolib");
 
-	# This program does nothing except demonstrate the virtual machine.
-	# In the future it might perform periodic operating system services.
-	while (n < 10)
-	{
-		if (i == 5000)
-		{
-			i = 0;
-			n = n + 1;
-			PrintStr("Kernel is running...");
-		}
+	# Launch the demo program. Maybe eventually an interactive command prompt could be used instead.
+	LoadModule("demo", false);
 
-		i = i + 1;
-	}
-
-	# stay alive but just sleep
+	# This is the main kernel task. It should never exit.
 	while (true)
 	{
-		PrintStr("Kernel is stopped.");
-		Sleep(30000);
+		Sleep(5000);
+
+		# Periodically remove PCBs of tasks that have exited.
+		if (FreeDeadTask())
+		{
+			PrintStr("Removed a completed task.");
+		}
 	}
 }

@@ -344,7 +344,7 @@ static Chunk *LoadLodChunk(World *world, ivec3 coords, int lodLevel, int alignme
 			else
 			{
 				ListUInt64RemoveAt(&world->allChunks, i--);
-				printf("Dead chunk.\n");
+				//printf("Dead chunk.\n");
 			}
 		}
 	}

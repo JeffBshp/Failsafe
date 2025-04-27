@@ -119,9 +119,10 @@ GameState *Game_New(void)
 
 	// virtual computer
 	gs->programFilePath = "res/code/demo.tmp";
-	Memory mem = Memory_New(16384);
+	Memory mem = Memory_New(16 * 1024);
 	Device device = Device_New(gs->world, gs->selectedObject);
-	gs->codeDemoCpu = Cpu_New(device, mem);
+	Disk disk = Disk_New(1024 * 1024, "res/code");
+	gs->codeDemoCpu = Cpu_New(device, disk, mem);
 
 	// finish setting up GL buffers
 	Render_InitBuffers(gs->render);

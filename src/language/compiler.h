@@ -9,7 +9,7 @@
 
 enum
 {
-	MAXINSTR = 1000,
+	MAXINSTR = 5000,
 	MAXFUNCCALS = 500,
 	MAXSTRLEN = 500,
 	MAXNAMELEN = 100,
@@ -21,6 +21,8 @@ enum
 typedef enum
 {
 	COMPILE_SUCCESS, // no errors
+	COMPILE_PARSEERROR, // error during the parsing stage
+	COMPILE_MISSINGLIB, // referenced library missing or failed to compile
 	COMPILE_TOOMANYINSTR, // compiler limits the number of instructions it will emit
 	COMPILE_TOOMANYCALLS, // compiler limits the number of function calls it will process
 	COMPILE_TOOMANYVARS, // too many params + local vars in a function; limited due to low-level implementation details

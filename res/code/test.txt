@@ -1,0 +1,21 @@
+import stdlib;
+import foolib;
+
+void main
+	()
+	(int x)
+{
+	PrintStr("Started a secondary task!");
+	DoFoo(5000);
+
+	x = 0;
+
+	while (x < 3)
+	{
+		PrintStr("Task is running.");
+		Sleep(5000);
+		x = x + 1;
+	}
+
+	PrintStr("Task is exiting...");
+}
